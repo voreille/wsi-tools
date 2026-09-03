@@ -21,8 +21,7 @@ class JSONTilingStore(BaseTilingStore):
     # ---- paths ----
     def _paths(self, slide_id: str) -> Tuple[Path, Path]:
         base = self.coords_dir / slide_id
-        return base.with_suffix(".coords.jsonl"), base.with_suffix(
-            ".meta.json")
+        return base.with_suffix(".coords.jsonl"), base.with_suffix(".meta.json")
 
     def coords_path(self, slide_id: str) -> Path:
         base = self.coords_dir / slide_id
@@ -44,24 +43,24 @@ class JSONTilingStore(BaseTilingStore):
         coords_path, meta_path = self._paths(slide_id)
         if coords_path.exists() and not overwrite:
             raise FileExistsError(
-                f"coords file exists and overwrite=False: {coords_path}")
+                f"coords file exists and overwrite=False: {coords_path}"
+            )
 
         # meta (atomic)
         tmp_meta = meta_path.with_suffix(meta_path.suffix + ".part")
-        tmp_meta.write_text(json.dumps(attrs, ensure_ascii=False, indent=2),
-                            encoding="utf-8")
+        tmp_meta.write_text(
+            json.dumps(attrs, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         tmp_meta.replace(meta_path)
 
         # coords (atomic create)
+        # TODO: check that it does not kill part of the name cause of the .
         tmp_coords = coords_path.with_suffix(coords_path.suffix + ".part")
         with tmp_coords.open("w", encoding="utf-8") as f:
             for (x, y), ci in zip(coords.tolist(), cont_idx.tolist()):
                 f.write(
-                    json.dumps({
-                        "x": int(x),
-                        "y": int(y),
-                        "cont_idx": int(ci)
-                    }) + "\n")
+                    json.dumps({"x": int(x), "y": int(y), "cont_idx": int(ci)}) + "\n"
+                )
         tmp_coords.replace(coords_path)
         return coords_path
 
@@ -81,15 +80,12 @@ class JSONTilingStore(BaseTilingStore):
         with coords_path.open("a", encoding="utf-8") as f:
             for (x, y), ci in zip(coords.tolist(), cont_idx.tolist()):
                 f.write(
-                    json.dumps({
-                        "x": int(x),
-                        "y": int(y),
-                        "cont_idx": int(ci)
-                    }) + "\n")
+                    json.dumps({"x": int(x), "y": int(y), "cont_idx": int(ci)}) + "\n"
+                )
 
     def load_coords(
-            self,
-            slide_id: str) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        self, slide_id: str
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         coords_path, meta_path = self._paths(slide_id)
         if not coords_path.exists() or not meta_path.exists():
             raise FileNotFoundError(
