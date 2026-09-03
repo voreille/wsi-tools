@@ -1,23 +1,24 @@
 # wsi_core/patch_sampling.py
 from __future__ import annotations
-import math
-import numpy as np
-import multiprocessing as mp
-import cv2
-from typing import Dict, Iterable, List, Tuple, Optional, Callable, Any
 
-from .geometry import compute_level_downsamples
-from .contour_checker import build_contour_checker, Contour_Checking_fn
-from wsi_core.wsi_utils import save_hdf5
+import math
+import multiprocessing as mp
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+
+import cv2
+import numpy as np
+
 # optional: isBlackPatch / isWhitePatch if you also want to filter images here
-from wsi_core.wsi_utils import isBlackPatch, isWhitePatch
+from wsi_core.wsi_utils import isBlackPatch, isWhitePatch, save_hdf5
+
+from .contour_checker import Contour_Checking_fn, build_contour_checker
+from .geometry import compute_level_downsamples
 
 Array = np.ndarray
 
 
 # ---------- simple inside tests ----------
-def is_in_holes(holes: Iterable[Array], pt: Tuple[int, int],
-                patch_size: int) -> bool:
+def is_in_holes(holes: Iterable[Array], pt: Tuple[int, int], patch_size: int) -> bool:
     cx = pt[0] + patch_size / 2
     cy = pt[1] + patch_size / 2
     for hole in holes:
@@ -26,20 +27,29 @@ def is_in_holes(holes: Iterable[Array], pt: Tuple[int, int],
     return False
 
 
-def is_in_contours(cont_check_fn: Contour_Checking_fn, pt: Tuple[int, int],
-                   holes: Optional[Iterable[Array]], patch_size: int) -> bool:
+def is_in_contours(
+    cont_check_fn: Contour_Checking_fn,
+    pt: Tuple[int, int],
+    holes: Optional[Iterable[Array]],
+    patch_size: int,
+) -> bool:
     if not cont_check_fn(pt):
         return False
-    return not is_in_holes(holes, pt,
-                           patch_size) if holes is not None else True
+    return not is_in_holes(holes, pt, patch_size) if holes is not None else True
 
 
 # ---------- multiprocessing-safe worker ----------
-def process_coord_candidate(coord: Tuple[int, int], contour_holes,
-                            ref_patch_size: int,
-                            cont_check_fn: Contour_Checking_fn):
-    return coord if is_in_contours(cont_check_fn, coord, contour_holes,
-                                   ref_patch_size) else None
+def process_coord_candidate(
+    coord: Tuple[int, int],
+    contour_holes,
+    ref_patch_size: int,
+    cont_check_fn: Contour_Checking_fn,
+):
+    return (
+        coord
+        if is_in_contours(cont_check_fn, coord, contour_holes, ref_patch_size)
+        else None
+    )
 
 
 # ---------- coord extraction over a single contour ----------
@@ -50,7 +60,7 @@ def extract_coords_for_contour(
     patch_level: int,
     patch_size: int = 256,
     step_size: int = 256,
-    contour_fn: "str | Contour_Checking_fn" = 'four_pt',
+    contour_fn: "str | Contour_Checking_fn" = "four_pt",
     use_padding: bool = True,
     top_left: Optional[Tuple[int, int]] = None,
     bot_right: Optional[Tuple[int, int]] = None,
@@ -58,8 +68,11 @@ def extract_coords_for_contour(
 ) -> Tuple[Dict[str, Array], Dict[str, Dict[str, Any]]]:
     downs = compute_level_downsamples(wsi)
     lvl_dims = wsi.level_dimensions
-    start_x, start_y, w, h = cv2.boundingRect(
-        contour) if contour is not None else (0, 0, *lvl_dims[patch_level])
+    start_x, start_y, w, h = (
+        cv2.boundingRect(contour)
+        if contour is not None
+        else (0, 0, *lvl_dims[patch_level])
+    )
 
     pdx = int(downs[patch_level][0])
     pdy = int(downs[patch_level][1])
@@ -83,10 +96,9 @@ def extract_coords_for_contour(
         return {}, {}
 
     if isinstance(contour_fn, str):
-        cont_check_fn = build_contour_checker(contour_fn,
-                                              contour,
-                                              ref_patch_size[0],
-                                              center_shift=0.5)
+        cont_check_fn = build_contour_checker(
+            contour_fn, contour, ref_patch_size[0], center_shift=0.5
+        )
     else:
         cont_check_fn = contour_fn
 
@@ -94,28 +106,30 @@ def extract_coords_for_contour(
     step_y = step_size * pdy
     x_range = np.arange(start_x, stop_x, step=step_x)
     y_range = np.arange(start_y, stop_y, step=step_y)
-    x_coords, y_coords = np.meshgrid(x_range, y_range, indexing='ij')
+    x_coords, y_coords = np.meshgrid(x_range, y_range, indexing="ij")
     coord_candidates = np.stack([x_coords.ravel(), y_coords.ravel()], axis=1)
 
     workers = min(max_workers, mp.cpu_count())
     with mp.Pool(workers) as pool:
-        it = [(tuple(coord), contour_holes, ref_patch_size[0], cont_check_fn)
-              for coord in coord_candidates]
+        it = [
+            (tuple(coord), contour_holes, ref_patch_size[0], cont_check_fn)
+            for coord in coord_candidates
+        ]
         results = pool.starmap(process_coord_candidate, it)
 
     coords = np.array([r for r in results if r is not None], dtype=int)
     if coords.size == 0:
         return {}, {}
 
-    asset = {'coords': coords}
+    asset = {"coords": coords}
     attr = {
-        'patch_size': patch_size,
-        'patch_level': patch_level,
-        'downsample': downs[patch_level],
-        'downsampled_level_dim': tuple(lvl_dims[patch_level]),
-        'level_dim': tuple(lvl_dims[0]),
+        "patch_size": patch_size,
+        "patch_level": patch_level,
+        "downsample": downs[patch_level],
+        "downsampled_level_dim": tuple(lvl_dims[patch_level]),
+        "level_dim": tuple(lvl_dims[0]),
     }
-    return asset, {'coords': attr}
+    return asset, {"coords": attr}
 
 
 # ---------- high-level: write coords to a single HDF5 (all contours) ----------
@@ -134,20 +148,22 @@ def extract_coords_for_all_contours_to_hdf5(
         return None
     init = True
     for idx, cont in enumerate(tissue_contours):
-        asset, attrs = extract_coords_for_contour(wsi,
-                                                  cont,
-                                                  holes_per_contour[idx],
-                                                  patch_level=patch_level,
-                                                  patch_size=patch_size,
-                                                  step_size=step_size,
-                                                  **kwargs)
+        asset, attrs = extract_coords_for_contour(
+            wsi,
+            cont,
+            holes_per_contour[idx],
+            patch_level=patch_level,
+            patch_size=patch_size,
+            step_size=step_size,
+            **kwargs,
+        )
         if not asset:
             continue
         if init:
-            save_hdf5(save_path_hdf5, asset, attrs, mode='w')
+            save_hdf5(save_path_hdf5, asset, attrs, mode="w")
             init = False
         else:
-            save_hdf5(save_path_hdf5, asset, mode='a')
+            save_hdf5(save_path_hdf5, asset, mode="a")
     return save_path_hdf5
 
 
@@ -165,7 +181,7 @@ def iter_patches_over_contour(
     white_black: bool = True,
     white_thresh: int = 15,
     black_thresh: int = 50,
-    contour_fn: "str | Contour_Checking_fn" = 'four_pt',
+    contour_fn: "str | Contour_Checking_fn" = "four_pt",
     use_padding: bool = True,
     name: Optional[str] = None,
 ):
@@ -186,16 +202,13 @@ def iter_patches_over_contour(
 
     start_x, start_y, w, h = cv2.boundingRect(contour)
     img_w, img_h = wsi.level_dimensions[0]
-    stop_x = start_x + w if use_padding else min(start_x + w, img_w -
-                                                 ref_patch_w)
-    stop_y = start_y + h if use_padding else min(start_y + h, img_h -
-                                                 ref_patch_h)
+    stop_x = start_x + w if use_padding else min(start_x + w, img_w - ref_patch_w)
+    stop_y = start_y + h if use_padding else min(start_y + h, img_h - ref_patch_h)
 
     if isinstance(contour_fn, str):
-        cont_check_fn = build_contour_checker(contour_fn,
-                                              contour,
-                                              ref_patch_w,
-                                              center_shift=0.5)
+        cont_check_fn = build_contour_checker(
+            contour_fn, contour, ref_patch_w, center_shift=0.5
+        )
     else:
         cont_check_fn = contour_fn
 
@@ -205,39 +218,34 @@ def iter_patches_over_contour(
     count = 0
     for y in range(start_y, stop_y, step_y):
         for x in range(start_x, stop_x, step_x):
-            if not is_in_contours(cont_check_fn,
-                                  (x, y), holes_for_contour, ref_patch_w):
+            if not is_in_contours(
+                cont_check_fn, (x, y), holes_for_contour, ref_patch_w
+            ):
                 continue
-            patch = wsi.read_region((x, y), patch_level,
-                                    (patch_size, patch_size)).convert('RGB')
+            patch = wsi.read_region(
+                (x, y), patch_level, (patch_size, patch_size)
+            ).convert("RGB")
             if custom_downsample > 1:
                 patch = patch.resize((target, target))
             arr = np.array(patch)
-            if white_black and (isBlackPatch(arr, rgbThresh=black_thresh)
-                                or isWhitePatch(arr, satThresh=white_thresh)):
+            if white_black and (
+                isBlackPatch(arr, rgbThresh=black_thresh)
+                or isWhitePatch(arr, satThresh=white_thresh)
+            ):
                 continue
             yield {
-                'x':
-                x // (pdx * custom_downsample),
-                'y':
-                y // (pdy * custom_downsample),
-                'cont_idx':
-                contour_idx,
-                'patch_level':
-                patch_level,
-                'downsample': (downs[patch_level]),
-                'downsampled_level_dim':
-                tuple(
-                    np.array(wsi.level_dimensions[patch_level]) //
-                    custom_downsample),
-                'level_dim':
-                wsi.level_dimensions[patch_level],
-                'patch_PIL':
-                patch,
-                'name':
-                name,
-                'save_path':
-                save_path,
+                "x": x // (pdx * custom_downsample),
+                "y": y // (pdy * custom_downsample),
+                "cont_idx": contour_idx,
+                "patch_level": patch_level,
+                "downsample": (downs[patch_level]),
+                "downsampled_level_dim": tuple(
+                    np.array(wsi.level_dimensions[patch_level]) // custom_downsample
+                ),
+                "level_dim": wsi.level_dimensions[patch_level],
+                "patch_PIL": patch,
+                "name": name,
+                "save_path": save_path,
             }
             count += 1
     # print(f"patches extracted: {count}")

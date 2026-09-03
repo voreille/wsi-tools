@@ -1,9 +1,10 @@
 # contour_check.py
 from __future__ import annotations
 
+from typing import Any, Protocol, Sequence, Tuple, Union, runtime_checkable
+
 import cv2
 import numpy as np
-from typing import Protocol, runtime_checkable, Sequence, Tuple, Union, Any
 
 PointLike = Union[Sequence[int], Sequence[float], np.ndarray]
 ContourArray = np.ndarray
@@ -19,8 +20,7 @@ def _to_cv_contour(contour: Any) -> ContourArray:
         # maybe it's already (N,1,2)
         if cont.ndim == 3 and cont.shape[-1] == 2 and cont.shape[1] == 1:
             return cont.astype(np.float32, copy=False)
-        raise ValueError(
-            f"Contour must be Nx2 or Nx1x2; got shape {cont.shape}")
+        raise ValueError(f"Contour must be Nx2 or Nx1x2; got shape {cont.shape}")
     # reshape to (N,1,2)
     return cont.reshape(-1, 1, 2)
 
@@ -36,8 +36,7 @@ def _to_float_point(pt: PointLike) -> Tuple[float, float]:
 class Contour_Checking_fn(Protocol):
     """Callable that decides if a patch/point is inside a contour."""
 
-    def __call__(self, pt: PointLike) -> bool:
-        ...
+    def __call__(self, pt: PointLike) -> bool: ...
 
 
 class isInContourV1(Contour_Checking_fn):
@@ -68,15 +67,13 @@ class isInContourV2(Contour_Checking_fn):
 
 class isInContourV3_Easy(Contour_Checking_fn):
     """Passes if ANY of the 4 offset points (or center when shift==0) is inside."""
+
     cont: ContourArray
     patch_size: int
     center_shift: float
     _shift_px: int
 
-    def __init__(self,
-                 contour: Any,
-                 patch_size: int,
-                 center_shift: float = 0.5):
+    def __init__(self, contour: Any, patch_size: int, center_shift: float = 0.5):
         self.cont = _to_cv_contour(contour)
         self.patch_size = int(patch_size)
         self.center_shift = float(center_shift)
@@ -94,26 +91,23 @@ class isInContourV3_Easy(Contour_Checking_fn):
                 (cx - self._shift_px, cy + self._shift_px),
             )
         else:
-            pts = ((cx, cy), )
+            pts = ((cx, cy),)
 
         for px, py in pts:
-            if cv2.pointPolygonTest(self.cont, (float(px), float(py)),
-                                    False) >= 0:
+            if cv2.pointPolygonTest(self.cont, (float(px), float(py)), False) >= 0:
                 return True
         return False
 
 
 class isInContourV3_Hard(Contour_Checking_fn):
     """Passes only if ALL 4 offset points (or center when shift==0) are inside."""
+
     cont: ContourArray
     patch_size: int
     center_shift: float
     _shift_px: int
 
-    def __init__(self,
-                 contour: Any,
-                 patch_size: int,
-                 center_shift: float = 0.5):
+    def __init__(self, contour: Any, patch_size: int, center_shift: float = 0.5):
         self.cont = _to_cv_contour(contour)
         self.patch_size = int(patch_size)
         self.center_shift = float(center_shift)
@@ -131,11 +125,10 @@ class isInContourV3_Hard(Contour_Checking_fn):
                 (cx - self._shift_px, cy + self._shift_px),
             )
         else:
-            pts = ((cx, cy), )
+            pts = ((cx, cy),)
 
         for px, py in pts:
-            if cv2.pointPolygonTest(self.cont, (float(px), float(py)),
-                                    False) < 0:
+            if cv2.pointPolygonTest(self.cont, (float(px), float(py)), False) < 0:
                 return False
         return True
 
@@ -169,6 +162,5 @@ def build_contour_checker(
             raise NotImplementedError(f"Unknown contour_fn: {contour_fn}")
     else:
         if not isinstance(contour_fn, Contour_Checking_fn):
-            raise TypeError(
-                "contour_fn must be a string or Contour_Checking_fn")
+            raise TypeError("contour_fn must be a string or Contour_Checking_fn")
         return contour_fn

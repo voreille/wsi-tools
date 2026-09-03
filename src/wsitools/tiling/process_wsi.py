@@ -7,9 +7,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import openslide
 
+from ..storage.config import TilingStoreConfig
 from ..storage.factory import build_tiling_store
 from ..storage.interfaces import TilingStore
-from ..storage.config import TilingStoreConfig
 from ..wsi_core.geometry import compute_level_downsamples
 from ..wsi_core.segmentation import segment_tissue
 from ..wsi_core.stitch import stitch_coords
@@ -64,7 +64,7 @@ def select_tile_level_fixed(
     if target_tile_mpp is None:
         return lvl, mpp, True, "fixed level; no target MPP"
     lo, hi = _bounds(target_tile_mpp, mpp_tolerance)
-    ok = (lo <= mpp <= hi)
+    ok = lo <= mpp <= hi
     reason = "within tolerance" if ok else f"mpp {mpp:.3f} not in [{lo:.3f}, {hi:.3f}]"
     return lvl, mpp, ok, reason
 
@@ -87,22 +87,31 @@ def select_tile_level_auto(
         lvl = closest
     elif level_policy == "lower":
         lowers = [i for i, m in enumerate(mpps) if m <= target_tile_mpp]
-        lvl = min(lowers, key=lambda i: abs(mpps[i] - target_tile_mpp)
-                  ) if lowers else closest
+        lvl = (
+            min(lowers, key=lambda i: abs(mpps[i] - target_tile_mpp))
+            if lowers
+            else closest
+        )
     else:  # "higher"
         highers = [i for i, m in enumerate(mpps) if m >= target_tile_mpp]
-        lvl = min(highers, key=lambda i: abs(mpps[i] - target_tile_mpp)
-                  ) if highers else closest
+        lvl = (
+            min(highers, key=lambda i: abs(mpps[i] - target_tile_mpp))
+            if highers
+            else closest
+        )
 
     mpp = mpps[lvl]
     lo, hi = _bounds(target_tile_mpp, mpp_tolerance)
-    ok = (lo <= mpp <= hi)
-    reason = "within tolerance" if ok else f"mpp {mpp:.3f} not in [{lo:.3f}, {hi:.3f}] (target {target_tile_mpp:.3f})"
+    ok = lo <= mpp <= hi
+    reason = (
+        "within tolerance"
+        if ok
+        else f"mpp {mpp:.3f} not in [{lo:.3f}, {hi:.3f}] (target {target_tile_mpp:.3f}), available mpps: {', '.join(f'{m:.3f}' for m in mpps)}"
+    )
     return lvl, mpp, ok, reason
 
 
-def select_tile_level_from_config(
-        wsi, cfg_resolution) -> Tuple[int, float, bool, str]:
+def select_tile_level_from_config(wsi, cfg_resolution) -> Tuple[int, float, bool, str]:
     if cfg_resolution.level_mode == "fixed":
         return select_tile_level_fixed(
             wsi,
@@ -201,8 +210,7 @@ def process_single_wsi(
 
     # Guard: segmentation size
     if _too_large_for_seg(wsi, seg_level):
-        raise SegmentationError(
-            f"WSI too large for segmentation at level {seg_level}")
+        raise SegmentationError(f"WSI too large for segmentation at level {seg_level}")
 
     seg_time = patch_time = stitch_time = 0.0
 
@@ -238,9 +246,11 @@ def process_single_wsi(
             raise MaskSavingError(f"Mask saving failed: {e}") from e
 
     # --- Tile level selection ---
-    tile_level, tile_mpp, mpp_within_tolerance, mpp_reason = select_tile_level_from_config(
-        wsi,
-        cfg_resolution=config.resolution,
+    tile_level, tile_mpp, mpp_within_tolerance, mpp_reason = (
+        select_tile_level_from_config(
+            wsi,
+            cfg_resolution=config.resolution,
+        )
     )
 
     # --- Patch coords ---
@@ -259,7 +269,8 @@ def process_single_wsi(
                 patch_size=config.grid.tile_size,
                 step_size=config.grid.step_size,
                 relative_wsi_path=wsi_path.relative_to(slide_rootdir)
-                if slide_rootdir is not None else wsi_path,
+                if slide_rootdir is not None
+                else wsi_path,
                 **patch_params,
             )
         except Exception as e:
@@ -333,29 +344,23 @@ def process_contours(
 
     level_downsamples = compute_level_downsamples(wsi)  # [(dx,dy), ...]
     attrs = {
-        "patch_size":
-        int(patch_size),
-        "step_size":
-        int(step_size),
-        "patch_level":
-        int(patch_level),
-        "downsample": (float(level_downsamples[patch_level][0]),
-                       float(level_downsamples[patch_level][1])),
-        "downsampled_level_dim":
-        tuple(map(int, wsi.level_dimensions[patch_level])),
-        "level0_dim":
-        tuple(map(int, wsi.level_dimensions[0])),
-        "coord_space":
-        "level0",
-        "relative_wsi_path":
-        str(relative_wsi_path),
-        "patch_mpp":
-        float(_get_level_mpps(wsi)[patch_level]),
+        "patch_size": int(patch_size),
+        "step_size": int(step_size),
+        "patch_level": int(patch_level),
+        "downsample": (
+            float(level_downsamples[patch_level][0]),
+            float(level_downsamples[patch_level][1]),
+        ),
+        "downsampled_level_dim": tuple(map(int, wsi.level_dimensions[patch_level])),
+        "level0_dim": tuple(map(int, wsi.level_dimensions[0])),
+        "coord_space": "level0",
+        "relative_wsi_path": str(relative_wsi_path),
+        "patch_mpp": float(_get_level_mpps(wsi)[patch_level]),
     }
 
     for idx, cont in enumerate(contours_tissue):
         if (idx + 1) % log_chunk == 0:
-            print(f"Processing contour {idx+1}/{n}")
+            print(f"Processing contour {idx + 1}/{n}")
 
         # Your process_contour returns (coords, attrs). Keep as-is, just shape/typing.
         coords = process_contour(
@@ -372,13 +377,10 @@ def process_contours(
         coords = np.asarray(coords, dtype=np.int32).reshape(-1, 2)
         if coords.size == 0:
             continue
-        cont_idx = np.full((coords.shape[0], ), idx, dtype=np.int32)
+        cont_idx = np.full((coords.shape[0],), idx, dtype=np.int32)
 
         if (not wrote_header) or (not append):
-            p = tiling_store.save_coords(slide_id,
-                                         coords,
-                                         attrs,
-                                         cont_idx=cont_idx)
+            p = tiling_store.save_coords(slide_id, coords, attrs, cont_idx=cont_idx)
             final_path_str = str(p)
             wrote_header = True
         else:

@@ -1,7 +1,9 @@
 # wsi_core/geometry.py
 from __future__ import annotations
-import numpy as np
+
 from typing import Iterable, List, Tuple
+
+import numpy as np
 
 Array = np.ndarray
 
@@ -16,12 +18,16 @@ def compute_level_downsamples(wsi) -> List[Tuple[float, float]]:
     return outs
 
 
-def scale_contours(contours: Iterable[Array],
-                   scale: Tuple[float, float]) -> List[Array]:
+def scale_contours(
+    contours: Iterable[Array], scale: Tuple[float, float]
+) -> List[Array]:
     return [np.array(cont * scale, dtype=np.int32) for cont in contours]
 
 
-def scale_holes(holes_per_contour: Iterable[Iterable[Array]],
-                scale: Tuple[float, float]) -> List[List[Array]]:
-    return [[np.array(h * scale, dtype=np.int32) for h in holes]
-            for holes in holes_per_contour]
+def scale_holes(
+    holes_per_contour: Iterable[Iterable[Array]], scale: Tuple[float, float]
+) -> List[List[Array]]:
+    return [
+        [np.array(h * scale, dtype=np.int32) for h in holes]
+        for holes in holes_per_contour
+    ]

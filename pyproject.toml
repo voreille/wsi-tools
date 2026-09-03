@@ -38,8 +38,8 @@ embed-cpu = [
 ]
 
 [project.scripts]
-wsi-tile = "histoseg_plugin.tiling.create_patches:main"
-wsi-embed = "histoseg_plugin.embedding.extract_features:main"
+wsi-tile = "wsitools.tiling.create_patches:main"
+wsi-embed = "wsitools.embedding.extract_features:main"
 
 [project.entry-points."histoseg_plugin.models"]
 test_resnet50 = "histoseg_plugin.models.builtin.test_resnet50.load:load"
