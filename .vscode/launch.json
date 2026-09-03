@@ -1,0 +1,35 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python Debugger: tile one test WSI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "wsitools.tiling.create_patches",
+           "args": [
+                "--source",
+                // "/mnt/nas7/data/TCGA_Lung_svs/LUAD/LUAD2/01bea133-7f27-40a6-8d4e-018da17accda",
+                "/mnt/nas7/data/TCGA_Lung_svs/LUAD/",
+                "--output",
+                "/home/valentin/workspaces/wsi-tools/outputs"
+            ],
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ]
+}
