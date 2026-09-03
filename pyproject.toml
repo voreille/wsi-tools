@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "histoseg-plugin"
 version = "0.1.0"
 description = "A FastAPI core for histopathology pipelines with pluggable viewer adapters"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi", 
     "uvicorn[standard]", 
@@ -38,8 +38,8 @@ embed-cpu = [
 ]
 
 [project.scripts]
-histoseg-tile = "histoseg_plugin.tiling.create_patches:main"
-histoseg-embed = "histoseg_plugin.embedding.extract_features:main"
+wsi-tile = "histoseg_plugin.tiling.create_patches:main"
+wsi-embed = "histoseg_plugin.embedding.extract_features:main"
 
 [project.entry-points."histoseg_plugin.models"]
 test_resnet50 = "histoseg_plugin.models.builtin.test_resnet50.load:load"
