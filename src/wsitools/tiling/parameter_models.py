@@ -53,13 +53,15 @@ class ResolutionParams(BaseModel):
     """
     Only pyramid-level / MPP selection.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     level_mode: Literal["auto", "fixed"] = "auto"
-    target_tile_mpp: Optional[float] = Field(default=0.50, gt=0)
+    target_tile_mpp: float = Field(default=0.50, gt=0)
     mpp_tolerance: float = Field(default=0.10, ge=0, le=1)
     tile_level: int = -1  # used when level_mode == "fixed"
     level_policy: LevelPolicy = "closest"  # used when level_mode == "auto"
+    correct_tile_size: bool = True
 
     @model_validator(mode="after")
     def _validate(self) -> "ResolutionParams":
@@ -68,8 +70,7 @@ class ResolutionParams(BaseModel):
                 raise ValueError("resolution.mode='fixed' requires level ≥ 0.")
         else:  # auto
             if self.target_tile_mpp is None:
-                raise ValueError(
-                    "resolution.mode='auto' requires target_tile_mpp.")
+                raise ValueError("resolution.mode='auto' requires target_tile_mpp.")
         return self
 
 
@@ -77,6 +78,7 @@ class GridParams(BaseModel):
     """
     Pure extraction geometry (lattice).
     """
+
     model_config = ConfigDict(extra="forbid")
     tile_size: int = Field(default=256, gt=0)
     step_size: int = Field(default=256, gt=0)
@@ -99,6 +101,7 @@ class TilingConfig(BaseModel):
       vis_params: {...}
       patch_params: {...}
     """
+
     model_config = ConfigDict(extra="forbid")
 
     resolution: ResolutionParams = ResolutionParams()
@@ -123,5 +126,4 @@ class TilingConfig(BaseModel):
         Write a YAML that contains only the `preprocessing:` section.
         If you manage a full GlobalConfig elsewhere, prefer writing that instead.
         """
-        Path(path).write_text(
-            yaml.safe_dump(self.model_dump(), sort_keys=False))
+        Path(path).write_text(yaml.safe_dump(self.model_dump(), sort_keys=False))

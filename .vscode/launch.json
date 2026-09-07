@@ -22,9 +22,10 @@
            "args": [
                 "--source",
                 // "/mnt/nas7/data/TCGA_Lung_svs/LUAD/LUAD2/01bea133-7f27-40a6-8d4e-018da17accda",
-                "/mnt/nas7/data/TCGA_Lung_svs/LUAD/",
+                // "/mnt/nas7/data/TCGA_Lung_svs/LUAD/",
+                "/home/val/workspaces/wsi-tools/data/wsi_test/",
                 "--output",
-                "/home/valentin/workspaces/wsi-tools/outputs"
+                "outputs/"
             ],
             "console": "integratedTerminal",
             "env": {

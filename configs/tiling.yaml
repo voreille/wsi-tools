@@ -3,7 +3,7 @@ resolution:
   target_tile_mpp: 0.50
   mpp_tolerance: 0.1
   tile_level: -1
-  level_policy: "closest" # options: "closest", "lower", "higher", "exact"
+  level_policy: "lower" # options: "closest", "lower", "higher", "exact"
 
 grid:
   tile_size: 224

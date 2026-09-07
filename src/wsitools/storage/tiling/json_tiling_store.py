@@ -21,11 +21,13 @@ class JSONTilingStore(BaseTilingStore):
     # ---- paths ----
     def _paths(self, slide_id: str) -> Tuple[Path, Path]:
         base = self.coords_dir / slide_id
-        return base.with_suffix(".coords.jsonl"), base.with_suffix(".meta.json")
+        return base.with_name(base.name + ".coords.jsonl"), base.with_name(
+            base.name + ".meta.json"
+        )
 
     def coords_path(self, slide_id: str) -> Path:
         base = self.coords_dir / slide_id
-        return base.with_suffix(".coords.jsonl")
+        return base.with_name(base.name + ".coords.jsonl")
 
     # ---- coords I/O ----
     def save_coords(
@@ -47,7 +49,7 @@ class JSONTilingStore(BaseTilingStore):
             )
 
         # meta (atomic)
-        tmp_meta = meta_path.with_suffix(meta_path.suffix + ".part")
+        tmp_meta = meta_path.with_name(meta_path.name + ".part")
         tmp_meta.write_text(
             json.dumps(attrs, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -55,7 +57,7 @@ class JSONTilingStore(BaseTilingStore):
 
         # coords (atomic create)
         # TODO: check that it does not kill part of the name cause of the .
-        tmp_coords = coords_path.with_suffix(coords_path.suffix + ".part")
+        tmp_coords = coords_path.with_name(coords_path.name + ".part")
         with tmp_coords.open("w", encoding="utf-8") as f:
             for (x, y), ci in zip(coords.tolist(), cont_idx.tolist()):
                 f.write(

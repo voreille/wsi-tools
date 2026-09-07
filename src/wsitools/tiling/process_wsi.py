@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 import openslide
@@ -26,7 +26,7 @@ from .jobs.exceptions import (
 from .parameter_models import LevelPolicy, TilingConfig
 
 
-def _get_level_mpps(wsi) -> List[float]:
+def _get_level_mpps(wsi) -> list[float]:
     props = wsi.properties
     base = None
     try:
@@ -36,14 +36,14 @@ def _get_level_mpps(wsi) -> List[float]:
     except Exception:
         base = None
 
-    mpps: List[float] = []
+    mpps: list[float] = []
     for lvl in range(wsi.level_count):
         ds = float(wsi.level_downsamples[lvl])
         mpps.append(base * ds if base is not None else ds)
     return mpps
 
 
-def _bounds(target_mpp: float, tol: float) -> Tuple[float, float]:
+def _bounds(target_mpp: float, tol: float) -> tuple[float, float]:
     lo = target_mpp * (1 - tol)
     hi = target_mpp * (1 + tol)
     return lo, hi
@@ -55,7 +55,7 @@ def select_tile_level_fixed(
     tile_level: int,
     target_tile_mpp: Optional[float] = None,
     mpp_tolerance: float = 0.10,
-) -> Tuple[int, float, bool, str]:
+) -> tuple[int, float, bool, str]:
     mpps = _get_level_mpps(wsi)
     if not mpps:
         raise ValueError("No pyramid levels.")
@@ -75,7 +75,7 @@ def select_tile_level_auto(
     target_tile_mpp: float,
     mpp_tolerance: float,
     level_policy: LevelPolicy,
-) -> Tuple[int, float, bool, str]:
+) -> tuple[int, float, bool, str]:
     mpps = _get_level_mpps(wsi)
     if not mpps:
         raise ValueError("No pyramid levels.")
@@ -111,7 +111,19 @@ def select_tile_level_auto(
     return lvl, mpp, ok, reason
 
 
-def select_tile_level_from_config(wsi, cfg_resolution) -> Tuple[int, float, bool, str]:
+def correct_tile_size(
+    tile_size: int, step_size: int, target_mpp: float, current_mpp: float
+) -> tuple[int, int]:
+    target_tile_length = tile_size * target_mpp
+    target_step_length = step_size * target_mpp
+
+    new_tile_size = round(target_tile_length / current_mpp)
+    new_step_size = round(target_step_length / current_mpp)
+
+    return new_tile_size, new_step_size
+
+
+def select_tile_level_from_config(wsi, cfg_resolution) -> tuple[int, float, bool, str]:
     if cfg_resolution.level_mode == "fixed":
         return select_tile_level_fixed(
             wsi,
@@ -129,7 +141,7 @@ def select_tile_level_from_config(wsi, cfg_resolution) -> Tuple[int, float, bool
     )
 
 
-def _parse_ids(ids: Optional[Union[str, List[int]]]) -> List[int]:
+def _parse_ids(ids: Optional[Union[str, list[int]]]) -> list[int]:
     if isinstance(ids, list):
         return [int(x) for x in ids]
     if ids is None:
@@ -140,7 +152,7 @@ def _parse_ids(ids: Optional[Union[str, List[int]]]) -> List[int]:
     return [int(x) for x in s.split(",") if str(x).strip() != ""]
 
 
-def _resolve_levels(wsi, seg_level: int, vis_level: int) -> Tuple[int, int]:
+def _resolve_levels(wsi, seg_level: int, vis_level: int) -> tuple[int, int]:
 
     def best_level() -> int:
         return int(wsi.get_best_level_for_downsample(64))
@@ -252,6 +264,18 @@ def process_single_wsi(
             cfg_resolution=config.resolution,
         )
     )
+    tile_size = config.grid.tile_size
+    step_size = config.grid.step_size
+    if config.resolution.correct_tile_size and not mpp_within_tolerance:
+        tile_size, step_size = correct_tile_size(
+            tile_size=tile_size,
+            step_size=step_size,
+            target_mpp=config.resolution.target_tile_mpp,
+            current_mpp=tile_mpp,
+        )
+        mpp_reason += (
+            f"\nThe new tile and step size are resp. {tile_size}, and {step_size}."
+        )
 
     # --- Patch coords ---
     if generate_patches:
@@ -266,8 +290,8 @@ def process_single_wsi(
                 holes_tissue=holes_tissue,
                 tiling_store=tiling_store,
                 patch_level=tile_level,
-                patch_size=config.grid.tile_size,
-                step_size=config.grid.step_size,
+                patch_size=tile_size,
+                step_size=step_size,
                 relative_wsi_path=wsi_path.relative_to(slide_rootdir)
                 if slide_rootdir is not None
                 else wsi_path,
