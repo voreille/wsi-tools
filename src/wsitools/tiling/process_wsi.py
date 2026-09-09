@@ -264,18 +264,21 @@ def process_single_wsi(
             cfg_resolution=config.resolution,
         )
     )
-    tile_size = config.grid.tile_size
-    step_size = config.grid.step_size
+    target_tile_size = config.grid.tile_size
+    target_step_size = config.grid.step_size
     if config.resolution.correct_tile_size and not mpp_within_tolerance:
         tile_size, step_size = correct_tile_size(
-            tile_size=tile_size,
-            step_size=step_size,
+            tile_size=target_tile_size,
+            step_size=target_step_size,
             target_mpp=config.resolution.target_tile_mpp,
             current_mpp=tile_mpp,
         )
         mpp_reason += (
-            f"\nThe new tile and step size are resp. {tile_size}, and {step_size}."
+            f"The new tile and step size are resp. {tile_size}, and {step_size}."
         )
+    else:
+        tile_size = target_tile_size
+        step_size = target_step_size
 
     # --- Patch coords ---
     if generate_patches:
@@ -292,6 +295,8 @@ def process_single_wsi(
                 patch_level=tile_level,
                 patch_size=tile_size,
                 step_size=step_size,
+                target_patch_size=target_tile_size,
+                target_step_size=target_step_size,
                 relative_wsi_path=wsi_path.relative_to(slide_rootdir)
                 if slide_rootdir is not None
                 else wsi_path,
@@ -350,6 +355,8 @@ def process_contours(
     patch_level: int,
     patch_size: int,
     step_size: int,
+    target_patch_size: int,
+    target_step_size: int,
     append: bool = True,
     relative_wsi_path: Optional[Path] = None,
     **kwargs,
@@ -370,6 +377,8 @@ def process_contours(
     attrs = {
         "patch_size": int(patch_size),
         "step_size": int(step_size),
+        "target_patch_size": int(target_patch_size),
+        "target_step_size": int(target_step_size),
         "patch_level": int(patch_level),
         "downsample": (
             float(level_downsamples[patch_level][0]),

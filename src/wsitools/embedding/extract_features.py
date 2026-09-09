@@ -12,7 +12,8 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..models.hub import load_model
+# from ..models.hub import load_model
+from ..models.model_builder import build_encoder, build_tx
 from ..storage.config import EmbeddingStoreConfig
 from ..storage.factory import build_embedding_store, build_tiling_store_from_dir
 from .datasets import WholeSlidePatch
@@ -27,20 +28,13 @@ DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
     "--tiles-rootdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False),
     required=True,
-    help=
-    "Root directory containing tiling outputs (must include .tiling_store.json).",
+    help="Root directory containing tiling outputs (must include .tiling_store.json).",
 )
 @click.option(
     "--slides-rootdir",
     type=click.Path(path_type=Path, exists=True, file_okay=False),
     required=True,
     help="Directory containing the raw WSIs.",
-)
-@click.option(
-    "--model-dir",
-    type=click.Path(path_type=Path, exists=True, file_okay=False),
-    required=False,
-    help="Directory containing the model files.",
 )
 @click.option(
     "--output-dir",
@@ -50,12 +44,17 @@ DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
 )
 @click.option(
     "--model-name",
-    type=click.Choice(["resnet50_trunc", "uni_v1", "conch_v1"]),
-    default="resnet50_trunc",
+    type=click.Choice(
+        [
+            "uni2-h",
+            "h0-mini",
+            "h-optimus-1",
+        ]
+    ),
+    default="h0-mini",
 )
 @click.option("--batch-size", type=int, default=256)
 @click.option("--num-workers", type=int, default=8)
-@click.option("--target-patch-size", type=int, default=224)
 @click.option(
     "--no-auto-skip",
     is_flag=True,
@@ -74,12 +73,10 @@ DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
 def main(
     tiles_rootdir: Path,
     slides_rootdir: Path,
-    model_dir: Path,
     output_dir: Path,
     model_name: str,
     batch_size: int,
     num_workers: int,
-    target_patch_size: int,
     no_auto_skip: bool,
     use_amp: bool,
     export_pt: bool,
@@ -105,24 +102,15 @@ def main(
     )
 
     (output_dir / ".embedding_store.json").write_text(
-        json.dumps(embedding_store_config.model_dump(mode='json'), indent=2))
+        json.dumps(embedding_store_config.model_dump(mode="json"), indent=2)
+    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if model_dir is not None:
-        model, tx, out_dim, dtype, meta = load_model(model_dir, device="cuda")
-    else:
-        model, tx, out_dim, dtype, meta = load_model("test_resnet50",
-                                                     device="cuda")
+
+    model, pixel_mean, pixel_std, out_dim, dtype = build_encoder(model_name)
     model.eval().to(device)
 
     # Saving model files for provenance
-    out_model_dir = output_dir / "model"
-    out_model_dir.mkdir(parents=True, exist_ok=True)
-    if "loader_py_path" in meta:
-        shutil.copy2(meta["loader_py_path"], out_model_dir / "load.py")
-    if "model_yaml_path" in meta:
-        shutil.copy2(meta["model_yaml_path"], out_model_dir / "model.yaml")
-
     loader_kwargs = {
         "num_workers": num_workers,
         "pin_memory": device.type == "cuda",
@@ -131,22 +119,25 @@ def main(
 
     autocast = (
         torch.amp.autocast("cuda", dtype=dtype)  # type: ignore[attr-defined]
-        if (use_amp and device.type == "cuda" and dtype is not None) else
-        nullcontext())
+        if (use_amp and device.type == "cuda" and dtype is not None)
+        else nullcontext()
+    )
 
     n_removed = embedding_store.cleanup_incomplete()
     if n_removed > 0:
         click.echo(f"Removed {n_removed} incomplete .part files.")
 
-    for slide_id in tqdm(sorted(tiling_store.slide_ids()),
-                         desc="Slides",
-                         unit="slide"):
-
-        if (not no_auto_skip and embedding_store.status(slide_id) == "final"):
+    for slide_id in tqdm(sorted(tiling_store.slide_ids()), desc="Slides", unit="slide"):
+        if not no_auto_skip and embedding_store.status(slide_id) == "final":
             tqdm.write(f"Skipping {slide_id} (already done)")
             continue
 
         coords, _, attrs = tiling_store.load_coords(slide_id)
+        target_patch_size = attrs.get("target_patch_size")
+        if target_patch_size is None:
+            raise ValueError(
+                f"Missing 'target_patch_size' in tiling store attrs for {slide_id}"
+            )
 
         # If you stored 'wsi_relpath' or 'wsi_basename' in attrs, consider:
         # slide_path = tiling_store.resolve_wsi(slide_id, attrs)
@@ -155,25 +146,32 @@ def main(
 
         tile_level = int(attrs["patch_level"])
         tile_size = int(attrs["patch_size"])
+        tx = build_tx(pixel_mean, pixel_std, target_patch_size)
+        attrs.update(
+            {
+                "encoder_name": model_name,
+                "encoder_out_dim": out_dim,
+                "encoder_pixel_mean": pixel_mean,
+                "encoder_pixel_std": pixel_std,
+                "encoder_dtype": str(dtype),
+            }
+        )
 
         with WholeSlidePatch(
-                coords,
-                wsi_path=slide_path,
-                tile_level=tile_level,
-                tile_size=tile_size,
-                transform=tx,
+            coords,
+            wsi_path=slide_path,
+            tile_level=tile_level,
+            tile_size=tile_size,
+            transform=tx,
         ) as ds:
-            loader = DataLoader(ds,
-                                batch_size=batch_size,
-                                shuffle=False,
-                                **loader_kwargs)
+            loader = DataLoader(
+                ds, batch_size=batch_size, shuffle=False, **loader_kwargs
+            )
 
             embedding_store.begin_slide(slide_id, dim=out_dim, attrs=attrs)
 
             with torch.inference_mode():
-                for batch in tqdm(loader,
-                                  desc=f"Embedding {slide_id}",
-                                  leave=False):
+                for batch in tqdm(loader, desc=f"Embedding {slide_id}", leave=False):
                     imgs = batch["img"].to(device, non_blocking=True)
                     batch_coords = batch["coord"].numpy().astype(np.int32)
 

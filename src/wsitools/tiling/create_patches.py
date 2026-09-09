@@ -19,6 +19,16 @@ DEFAULT_CFG = project_dir / "configs" / "tiling.yaml"
 DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
 
 
+def load_slide_filenames(path: Path) -> set[str]:
+    with path.open() as f:
+        data = json.load(f)
+
+    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+        raise click.ClickException(f"{path} must contain a JSON list of filenames.")
+
+    return set(data)
+
+
 @click.command()
 @click.option(
     "--source",
@@ -40,11 +50,21 @@ DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
     help="Base YAML config (full).",
 )
 @click.option(
-    "--process-list",
+    "--joblist-yaml",
     type=click.Path(exists=False, dir_okay=False, path_type=Path),
     required=False,
     show_default=True,
-    help="CSV file with a 'slide_id' column listing slides to process and the different parameters to use for each slide",
+    help="YAML file representing a joblist",
+)
+@click.option(
+    "--include-slides",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=False,
+    help=(
+        "JSON file containing a list of WSI filenames to process "
+        "(e.g. ['slide1.svs', 'slide2.svs']). "
+        "Ignored when --joblist-yaml is provided."
+    ),
 )
 @click.option("--seg/--no-seg", default=True, help="Generate segmentation masks.")
 @click.option("--patch/--no-patch", default=True, help="Generate patch coordinates.")
@@ -55,6 +75,17 @@ DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
     "--auto-skip/--no-auto-skip",
     default=True,
     help="Skip slides whose outputs already exist.",
+)
+@click.option(
+    "--strict-mpp/--no-strict-mpp",
+    default=False,
+    help="Skip slides whose outputs already exist.",
+)
+@click.option(
+    "--generate-joblist-only",
+    is_flag=True,
+    default=False,
+    help="Generate a joblist YAML file without processing slides.",
 )
 @click.option("--quiet", is_flag=True, help="Suppress verbose output.")
 @click.option(
@@ -76,11 +107,14 @@ def main(
     source: Path,
     output: Path,
     config: Path,
-    process_list: Path | None,
+    joblist_yaml: Path | None,
+    include_slides: Path | None,
     seg: bool,
     patch: bool,
     stitch: bool,
     auto_skip: bool,
+    strict_mpp: bool,
+    generate_joblist_only: bool,
     quiet: bool,
     extensions: str,
     no_manifest: bool,
@@ -94,16 +128,48 @@ def main(
 
     # Parse extensions
     file_extensions = tuple(ext.strip() for ext in extensions.split(","))
+    if generate_joblist_only:
+        if joblist_yaml:
+            click.echo(f"Generating joblist from {joblist_yaml}...")
+            joblist = jobs_from_yaml(joblist_yaml, slides_root=source)
+        else:
+            click.echo(f"Generating joblist from {source}...")
+            joblist = jobs_from_dir(
+                source, cfg, exts=file_extensions, rglob_str=rglob_str
+            )
 
-    if process_list:
-        joblist = jobs_from_yaml(process_list, slides_root=source)
         if not joblist.jobs:
-            click.echo(f"No valid jobs found in {process_list}", err=True)
+            click.echo("No valid jobs found.", err=True)
+            raise click.Abort()
+
+        output = output.resolve()
+        output.mkdir(parents=True, exist_ok=True)
+
+        job_store = YamlJobStore(path=output / "tiling_jobs.yaml", slides_root=source)
+        joblist.normalize_for_resume()
+        job_store.save_statuses(joblist)
+
+        click.echo(f"Joblist written to {output / 'tiling_jobs.yaml'}")
+        return
+
+    if joblist_yaml:
+        joblist = jobs_from_yaml(joblist_yaml, slides_root=source)
+        if not joblist.jobs:
+            click.echo(f"No valid jobs found in {joblist_yaml}", err=True)
             raise click.Abort()
         if not quiet:
-            click.echo(f"Loaded {len(joblist.jobs)} jobs from {process_list}")
+            click.echo(f"Loaded {len(joblist.jobs)} jobs from {joblist_yaml}")
     else:
-        joblist = jobs_from_dir(source, cfg, exts=file_extensions, rglob_str=rglob_str)
+        slide_filenames = (
+            load_slide_filenames(include_slides) if include_slides is not None else None
+        )
+        joblist = jobs_from_dir(
+            source,
+            cfg,
+            exts=file_extensions,
+            rglob_str=rglob_str,
+            slide_filenames=slide_filenames,
+        )
         if not joblist.jobs:
             click.echo(f"No valid WSI files found in {source}", err=True)
             raise click.Abort()
@@ -147,6 +213,7 @@ def main(
                 auto_skip=auto_skip,
                 verbose=not quiet,
                 write_manifest=not no_manifest,
+                strict_mpp=strict_mpp,
             ),
             store_config=store_config,
         )

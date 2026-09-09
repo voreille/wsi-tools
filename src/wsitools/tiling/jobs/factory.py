@@ -13,6 +13,7 @@ def jobs_from_dir(
     run_config: TilingConfig,
     exts: tuple[str, ...] = (".svs", ".ndpi", ".tiff", ".tif"),
     rglob_str: str = "*",
+    slide_filenames: set[str] | None = None,
 ) -> TilingJobCollection:
     source_dir = Path(source_dir)
     files: set[Path] = set()
@@ -25,9 +26,17 @@ def jobs_from_dir(
         for path in source_dir.rglob(rglob_str):
             progress.update()
 
-            if path.is_file() and path.suffix.lower() in exts:
-                files.add(path)
-                progress.set_postfix(slides=len(files), refresh=False)
+            if not path.is_file():
+                continue
+
+            if path.suffix.lower() not in exts:
+                continue
+
+            if slide_filenames is not None and path.name not in slide_filenames:
+                continue
+
+            files.add(path)
+            progress.set_postfix(slides=len(files), refresh=False)
 
     jobs = [TilingJob(slide_path=path, config=run_config) for path in sorted(files)]
 
