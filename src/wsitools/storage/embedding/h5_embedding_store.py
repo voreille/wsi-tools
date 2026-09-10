@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Literal
+from typing import Any, Dict, Literal, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -26,15 +26,11 @@ class H5EmbeddingStore(EmbeddingStore):
         self,
         *,
         root_dir: Path,
-        slides_root: Path,
         features_dir: Path,
         compression: Optional[str] = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
-        self.slides_root = Path(slides_root)
-        if not self.slides_root.exists():
-            raise ValueError(f"slides_root does not exist: {slides_root}")
         self.features_dir = self.root_dir / features_dir
         self.features_dir.mkdir(parents=True, exist_ok=True)
         self.comp = compression
@@ -47,8 +43,7 @@ class H5EmbeddingStore(EmbeddingStore):
         return self.features_dir / f"{slide_id}.h5.part"
 
     # ---------- state helpers ----------
-    def status(self,
-               slide_id: str) -> Literal["absent", "partial", "final", "both"]:
+    def status(self, slide_id: str) -> Literal["absent", "partial", "final", "both"]:
         fin = self._final_path(slide_id).exists()
         par = self._part_path(slide_id).exists()
         if fin and par:
@@ -78,8 +73,7 @@ class H5EmbeddingStore(EmbeddingStore):
         return removed
 
     # ---------- write path ----------
-    def begin_slide(self, slide_id: str, *, dim: int,
-                    attrs: Dict[str, Any]) -> None:
+    def begin_slide(self, slide_id: str, *, dim: int, attrs: Dict[str, Any]) -> None:
         """
         Create or resume <slide>.h5.part.
         If resuming, ensure dims/attrs are compatible.
@@ -130,12 +124,14 @@ class H5EmbeddingStore(EmbeddingStore):
                 compression=self.comp,
             )
 
-    def append_batch(self, slide_id: str, features: np.ndarray,
-                     coords: np.ndarray) -> None:
+    def append_batch(
+        self, slide_id: str, features: np.ndarray, coords: np.ndarray
+    ) -> None:
         part = self._part_path(slide_id)
         if not part.exists():
             raise FileNotFoundError(
-                f"append_batch called before begin_slide: missing {part}")
+                f"append_batch called before begin_slide: missing {part}"
+            )
 
         feats = np.asarray(features, dtype=np.float32)
         crds = np.asarray(coords, dtype=np.int32).reshape(-1, 2)
@@ -167,8 +163,7 @@ class H5EmbeddingStore(EmbeddingStore):
         return final
 
     # ---------- read path ----------
-    def load(self,
-             slide_id: str) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    def load(self, slide_id: str) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """
         Prefer finalized file; fall back to .part (useful for debugging).
         """
@@ -176,7 +171,8 @@ class H5EmbeddingStore(EmbeddingStore):
         path = final if final.exists() else self._part_path(slide_id)
         if not path.exists():
             raise FileNotFoundError(
-                f"no embedding file for {slide_id}: {final} or {path}")
+                f"no embedding file for {slide_id}: {final} or {path}"
+            )
 
         with h5py.File(path, "r") as f:
             feats = f["features"][...].astype(np.float32, copy=False)
@@ -191,6 +187,7 @@ class H5EmbeddingStore(EmbeddingStore):
         """
         feats, coords, attrs = self.load(slide_id)
         import torch  # local import so torch isn't required unless used
+
         pt_dir = Path(pt_dir)
         pt_dir.mkdir(parents=True, exist_ok=True)
         out = pt_dir / f"{slide_id}.pt"
@@ -198,7 +195,7 @@ class H5EmbeddingStore(EmbeddingStore):
             {
                 "features": torch.from_numpy(feats),
                 "coords": torch.from_numpy(coords),
-                "attrs": attrs
+                "attrs": attrs,
             },
             out,
         )

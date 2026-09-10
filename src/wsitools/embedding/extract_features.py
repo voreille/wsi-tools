@@ -97,7 +97,6 @@ def main(
     )
     embedding_store = build_embedding_store(
         config=embedding_store_config,
-        slides_root=slides_rootdir,
         root_dir=output_dir,
     )
 
