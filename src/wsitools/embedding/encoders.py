@@ -1,4 +1,4 @@
-# src/histoseg_plugin/embedding/encoders.py
+# src/wsitools/embedding/encoders.py
 from __future__ import annotations
 
 from typing import Tuple

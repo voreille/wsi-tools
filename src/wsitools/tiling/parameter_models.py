@@ -1,4 +1,4 @@
-# src/histoseg_plugin/tiling/parameter_models.py
+# src/wsitools/tiling/parameter_models.py
 from __future__ import annotations
 
 from pathlib import Path

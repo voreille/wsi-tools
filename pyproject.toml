@@ -3,18 +3,17 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "histoseg-plugin"
+name = "wsitools"
 version = "0.1.0"
-description = "A FastAPI core for histopathology pipelines with pluggable viewer adapters"
+description = "Whole-slide image tiling, tile embedding and tiling/embedding stores"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi", 
-    "uvicorn[standard]", 
     "pydantic>=2,<3", 
     "numpy",
+    "scipy",
     "click",
     "tqdm",
-    "opencv-python",
+    "opencv-python-headless",
     "openslide-python",
     "openslide-bin",
     "pillow",
@@ -29,20 +28,20 @@ test = [
     "pytest-mock>=3.0",
     "pytest-cov>=4.0",
 ]
-# Quickstart on CPU (works on Linux/macOS/Windows via PyPI)
-embed-cpu = [
-    "torch==2.4.*",
-    "torchvision==0.19.*",
-    "torchaudio==2.4.*",
-    # (add other embed libs that are torch-agnostic here too, e.g., "einops")
+# Tile embedding and tile prediction (wsi-embed). Torch is left unpinned so the
+# consuming project chooses the version / CUDA build.
+embed = [
+    "torch",
+    "torchvision",
+    "timm",
 ]
 
 [project.scripts]
 wsi-tile = "wsitools.tiling.create_patches:main"
 wsi-embed = "wsitools.embedding.extract_features:main"
 
-[project.entry-points."histoseg_plugin.models"]
-test_resnet50 = "histoseg_plugin.models.builtin.test_resnet50.load:load"
+[project.entry-points."wsitools.models"]
+test_resnet50 = "wsitools.models.builtin.test_resnet50.load:load"
 
 [tool.setuptools.packages.find]
 where = ["src"]

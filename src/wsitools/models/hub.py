@@ -1,4 +1,4 @@
-# histoseg_plugin/models/hub.py
+# wsitools/models/hub.py
 from __future__ import annotations
 
 import importlib
@@ -39,7 +39,7 @@ def _import_function_from_file(mod_file: Path, func_name: str) -> Callable:
 
 
 def _load_from_entry_point(name: str) -> tuple[Callable, dict]:
-    for ep in _iter_eps("histoseg_plugin.models"):
+    for ep in _iter_eps("wsitools.models"):
         if ep.name == name:
             fn = ep.load()
             if not callable(fn):

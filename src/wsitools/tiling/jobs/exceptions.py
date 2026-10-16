@@ -1,4 +1,4 @@
-# histoseg_plugin/tiling/jobs/exceptions.py
+# wsitools/tiling/jobs/exceptions.py
 class TilingError(Exception):
     """Base class for tiling failures."""
 

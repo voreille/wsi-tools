@@ -3,7 +3,7 @@ import os
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 
-from histoseg_plugin.embedding.datasets import WholeSlidePatchH5
+from wsitools.embedding.datasets import WholeSlidePatchH5
 
 tx = T.Compose([
     T.Resize((224, 224)),

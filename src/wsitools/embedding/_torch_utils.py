@@ -1,4 +1,4 @@
-# src/histoseg_plugin/embedding/_torch_utils.py
+# src/wsitools/embedding/_torch_utils.py
 try:
     import torch
 except ImportError:
