@@ -39,6 +39,7 @@ embed = [
 [project.scripts]
 wsi-tile = "wsitools.tiling.create_patches:main"
 wsi-embed = "wsitools.embedding.extract_features:main"
+wsi-repack = "wsitools.storage.repack:main"
 
 [project.entry-points."wsitools.models"]
 test_resnet50 = "wsitools.models.builtin.test_resnet50.load:load"

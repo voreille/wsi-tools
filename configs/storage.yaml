@@ -11,4 +11,8 @@ embedding:
   features:
     kind: h5
     dir: h5_files/
-    compression: lzf
+    # Embeddings barely compress (LZF ~1.0x) and small auto-chunks make reads
+    # CPU-bound: store uncompressed in row-aligned chunks.
+    compression: null
+    dtype: float32
+    chunk_rows: 1024

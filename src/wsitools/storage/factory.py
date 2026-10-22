@@ -95,6 +95,8 @@ def build_embedding_store(
             root_dir=root_dir,
             features_dir=resolved_config.features.dir,
             compression=resolved_config.features.compression,
+            dtype=resolved_config.features.dtype,
+            chunk_rows=resolved_config.features.chunk_rows,
         )
     else:
         raise ValueError(f"Unknown embedding kind: {resolved_config.features.kind}")

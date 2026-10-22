@@ -17,9 +17,14 @@ class H5EmbeddingStore(EmbeddingStore):
       - finalize_slide() renames to <slide>.h5
 
     Schema:
-      /features: (N, D) float32, chunks, maxshape=(None, D)
+      /features: (N, D) float32 or float16, chunks, maxshape=(None, D)
       /coords  : (N, 2) int32,   chunks, maxshape=(None, 2)
       f.attrs  : slide-level metadata (flat)
+
+    With ``chunk_rows``, both datasets are chunked as ``(chunk_rows, D)`` so whole-slide
+    reads are a few large reads. Without it, h5py auto-chunks, which for D=1536 gives
+    tiny (64, 96) chunks; combined with compression that makes reads CPU-bound.
+    Embeddings barely compress (LZF ratio ~1.0), so ``compression=None`` is preferred.
     """
 
     def __init__(
@@ -28,12 +33,18 @@ class H5EmbeddingStore(EmbeddingStore):
         root_dir: Path,
         features_dir: Path,
         compression: Optional[str] = None,
+        dtype: Optional[str] = None,
+        chunk_rows: Optional[int] = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.features_dir = self.root_dir / features_dir
         self.features_dir.mkdir(parents=True, exist_ok=True)
         self.comp = compression
+        self.dtype = np.dtype(dtype or "float32")
+        if chunk_rows is not None and chunk_rows < 1:
+            raise ValueError(f"chunk_rows must be >= 1, got {chunk_rows}")
+        self.chunk_rows = chunk_rows
 
     # ---------- paths ----------
     def _final_path(self, slide_id: str) -> Path:
@@ -111,15 +122,15 @@ class H5EmbeddingStore(EmbeddingStore):
                 "features",
                 shape=(0, dim),
                 maxshape=(None, dim),
-                chunks=True,
-                dtype=np.float32,
+                chunks=(self.chunk_rows, dim) if self.chunk_rows else True,
+                dtype=self.dtype,
                 compression=self.comp,
             )
             f.create_dataset(
                 "coords",
                 shape=(0, 2),
                 maxshape=(None, 2),
-                chunks=True,
+                chunks=(self.chunk_rows, 2) if self.chunk_rows else True,
                 dtype=np.int32,
                 compression=self.comp,
             )
@@ -133,7 +144,7 @@ class H5EmbeddingStore(EmbeddingStore):
                 f"append_batch called before begin_slide: missing {part}"
             )
 
-        feats = np.asarray(features, dtype=np.float32)
+        feats = np.asarray(features, dtype=self.dtype)
         crds = np.asarray(coords, dtype=np.int32).reshape(-1, 2)
         if feats.ndim != 2:
             raise ValueError(f"features must be (N, D); got {feats.shape}")
@@ -163,9 +174,14 @@ class H5EmbeddingStore(EmbeddingStore):
         return final
 
     # ---------- read path ----------
-    def load(self, slide_id: str) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    def load(
+        self, slide_id: str, *, features_dtype: Optional[str] = "float32"
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         """
         Prefer finalized file; fall back to .part (useful for debugging).
+
+        Features are returned as ``features_dtype`` (float32 by default, whatever the
+        on-disk dtype); ``None`` keeps the stored dtype.
         """
         final = self._final_path(slide_id)
         path = final if final.exists() else self._part_path(slide_id)
@@ -175,7 +191,9 @@ class H5EmbeddingStore(EmbeddingStore):
             )
 
         with h5py.File(path, "r") as f:
-            feats = f["features"][...].astype(np.float32, copy=False)
+            feats = f["features"][...]
+            if features_dtype is not None:
+                feats = feats.astype(features_dtype, copy=False)
             coords = f["coords"][...].astype(np.int32, copy=False)
             attrs = {k: f.attrs[k] for k in f.attrs.keys()}
         return feats, coords, attrs

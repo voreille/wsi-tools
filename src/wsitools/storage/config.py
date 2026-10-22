@@ -21,6 +21,10 @@ class StoreConfig(BaseModel):
     kind: Literal["h5", "files", "json"] = "files"
     dir: Path
     compression: Optional[str] = None  # h5-only
+    # h5 embedding features only: on-disk dtype (default float32) and rows per chunk
+    # (default: h5py auto-chunking, which is very small for D=1536).
+    dtype: Optional[Literal["float32", "float16"]] = None
+    chunk_rows: Optional[int] = None
     extension: Optional[str] = None  # files-only
 
     def resolve(self, base: Path) -> "StoreConfig":
