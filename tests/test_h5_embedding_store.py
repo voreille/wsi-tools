@@ -101,3 +101,12 @@ def test_repack_refuses_same_dir_and_layout_change(tmp_path, slide):
     changed = CliRunner().invoke(repack_main, base + ["--dtype", "float32"])
     assert changed.exit_code != 0
     assert "different layout" in changed.output
+
+
+def test_relative_root_dir(tmp_path, slide, monkeypatch):
+    store = _make_store(tmp_path / "rel")
+    _write_slide(store, "s1", *slide)
+    monkeypatch.chdir(tmp_path)
+    reopened = build_embedding_store_from_dir(root_dir="rel")
+    assert reopened.slide_ids() == ["s1"]
+    assert not (tmp_path / "rel" / "rel").exists()

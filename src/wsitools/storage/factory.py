@@ -11,7 +11,8 @@ def build_tiling_store(
     root_dir: Path,
     slides_root: Path,
 ) -> TilingStore:
-    root_dir = Path(root_dir)
+    # Absolute: config dirs are resolved against root_dir, then joined to it again.
+    root_dir = Path(root_dir).resolve()
     resolved_config = config.resolve_paths(root_dir)
 
     coords_dir = resolved_config.coords.dir
@@ -85,7 +86,8 @@ def build_embedding_store(
     config: EmbeddingStoreConfig,
     root_dir: Path,
 ) -> EmbeddingStore:
-    root_dir = Path(root_dir)
+    # Absolute: config dirs are resolved against root_dir, then joined to it again.
+    root_dir = Path(root_dir).resolve()
     resolved_config = config.resolve_paths(root_dir)
 
     if resolved_config.features.kind.lower() == "h5":
@@ -108,7 +110,8 @@ def build_embedding_store_from_dir(
 ) -> EmbeddingStore:
     import json
 
-    root_dir = Path(root_dir)
+    # Absolute: config dirs are resolved against root_dir, then joined to it again.
+    root_dir = Path(root_dir).resolve()
     config_data = json.loads((root_dir / ".embedding_store.json").read_text())
     return build_embedding_store(
         config=EmbeddingStoreConfig.model_validate(config_data),
