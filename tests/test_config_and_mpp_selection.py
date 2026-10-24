@@ -14,10 +14,11 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
-from histoseg_plugin.tiling.config_ops import load_config_with_presets
-from histoseg_plugin.tiling.parameter_models import Config, Tiling
-from histoseg_plugin.tiling.process_wsi import (
+from wsitools.tiling.config_ops import load_config_with_presets
+from wsitools.tiling.parameter_models import GridParams, ResolutionParams, TilingConfig
+from wsitools.tiling.process_wsi import (
     _bounds,
     _get_level_mpps,
     select_tile_level_auto,
@@ -33,78 +34,66 @@ from histoseg_plugin.tiling.process_wsi import (
 @pytest.fixture
 def mock_wsi_standard():
     """Mock WSI with standard pyramid levels and MPP metadata."""
-    mock_wsi_obj = Mock()
     mock_openslide = Mock()
 
     # Standard pyramid: level 0 = 0.25 μm/px, each level doubles
     mock_openslide.level_count = 4
     mock_openslide.level_downsamples = [1.0, 2.0, 4.0, 8.0]
     mock_openslide.properties = {"openslide.mpp-x": "0.25", "openslide.mpp-y": "0.25"}
-
-    mock_wsi_obj.getOpenSlide.return_value = mock_openslide
-    return mock_wsi_obj
+    return mock_openslide
 
 
 @pytest.fixture
 def mock_wsi_no_mpp():
     """Mock WSI without MPP metadata (fallback to downsamples)."""
-    mock_wsi_obj = Mock()
     mock_openslide = Mock()
 
     mock_openslide.level_count = 3
     mock_openslide.level_downsamples = [1.0, 4.0, 16.0]
     mock_openslide.properties = {}  # No MPP metadata
-
-    mock_wsi_obj.getOpenSlide.return_value = mock_openslide
-    return mock_wsi_obj
+    return mock_openslide
 
 
 @pytest.fixture
 def mock_wsi_single_level():
     """Mock WSI with only one pyramid level."""
-    mock_wsi_obj = Mock()
     mock_openslide = Mock()
 
     mock_openslide.level_count = 1
     mock_openslide.level_downsamples = [1.0]
     mock_openslide.properties = {"openslide.mpp-x": "0.50", "openslide.mpp-y": "0.50"}
-
-    mock_wsi_obj.getOpenSlide.return_value = mock_openslide
-    return mock_wsi_obj
+    return mock_openslide
 
 
 @pytest.fixture
 def sample_configs():
     """Sample configurations for testing."""
     return {
-        "fixed_mode": Config(
-            tiling=Tiling(
+        "fixed_mode": TilingConfig(
+            resolution=ResolutionParams(
                 level_mode="fixed",
                 tile_level=1,
-                tile_size=256,
-                step_size=256,
                 # target_tile_mpp will default to 0.50, but in fixed mode it's used for tolerance check
-            )
+            ),
+            grid=GridParams(tile_size=256, step_size=256),
         ),
-        "auto_mode": Config(
-            tiling=Tiling(
+        "auto_mode": TilingConfig(
+            resolution=ResolutionParams(
                 level_mode="auto",
                 target_tile_mpp=0.50,
                 mpp_tolerance=0.10,
                 level_policy="closest",
-                tile_size=256,
-                step_size=256,
-            )
+            ),
+            grid=GridParams(tile_size=256, step_size=256),
         ),
-        "auto_lower": Config(
-            tiling=Tiling(
+        "auto_lower": TilingConfig(
+            resolution=ResolutionParams(
                 level_mode="auto",
                 target_tile_mpp=0.75,
                 mpp_tolerance=0.05,
                 level_policy="lower",
-                tile_size=512,
-                step_size=512,
-            )
+            ),
+            grid=GridParams(tile_size=512, step_size=512),
         ),
     }
 
@@ -116,14 +105,13 @@ def temp_yaml_configs():
 
     # Default config
     default_config = {
-        "tiling": {
+        "resolution": {
             "level_mode": "auto",
-            "tile_size": 256,
-            "step_size": 256,
             "target_tile_mpp": 0.30,
             "mpp_tolerance": 0.1,
             "level_policy": "closest",
         },
+        "grid": {"tile_size": 256, "step_size": 256},
         "seg_params": {"sthresh": 8},
         "filter_params": {"a_t": 100},
     }
@@ -131,7 +119,7 @@ def temp_yaml_configs():
     # Preset configs
     biopsy_preset = {"seg_params": {"sthresh": 15}, "filter_params": {"a_t": 50}}
 
-    fixed_preset = {"tiling": {"level_mode": "fixed", "tile_level": 2}}
+    fixed_preset = {"resolution": {"level_mode": "fixed", "tile_level": 2}}
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
@@ -179,7 +167,6 @@ class TestMPPExtraction:
 
     def test_extract_invalid_mpp_metadata(self):
         """Should handle corrupted MPP metadata gracefully."""
-        mock_wsi_obj = Mock()
         mock_openslide = Mock()
 
         mock_openslide.level_count = 2
@@ -189,9 +176,7 @@ class TestMPPExtraction:
             "openslide.mpp-y": "0.25",
         }
 
-        mock_wsi_obj.getOpenSlide.return_value = mock_openslide
-
-        mpps = _get_level_mpps(mock_wsi_obj)
+        mpps = _get_level_mpps(mock_openslide)
         assert mpps == [1.0, 2.0]  # fallback to downsamples
 
 
@@ -390,7 +375,7 @@ class TestMPPSelectionDispatcher:
         config = sample_configs["fixed_mode"]
 
         level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, config.tiling
+            mock_wsi_standard, config.resolution
         )
 
         assert level == 1  # config specifies tile_level=1
@@ -401,17 +386,15 @@ class TestMPPSelectionDispatcher:
 
     def test_dispatcher_fixed_mode_no_target(self, mock_wsi_standard):
         """Should route to fixed mode with no target MPP check."""
-        # Create a mock tiling object that bypasses Pydantic validation
-        from unittest.mock import Mock
-
-        mock_tiling = Mock()
-        mock_tiling.level_mode = "fixed"
-        mock_tiling.tile_level = 2
-        mock_tiling.target_tile_mpp = None
-        mock_tiling.mpp_tolerance = 0.10
+        # Create a mock resolution object that bypasses Pydantic validation
+        mock_resolution = Mock()
+        mock_resolution.level_mode = "fixed"
+        mock_resolution.tile_level = 2
+        mock_resolution.target_tile_mpp = None
+        mock_resolution.mpp_tolerance = 0.10
 
         level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, mock_tiling
+            mock_wsi_standard, mock_resolution
         )
 
         assert level == 2
@@ -423,7 +406,7 @@ class TestMPPSelectionDispatcher:
         config = sample_configs["auto_mode"]
 
         level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, config.tiling
+            mock_wsi_standard, config.resolution
         )
 
         assert level == 1  # closest to target 0.50
@@ -431,13 +414,14 @@ class TestMPPSelectionDispatcher:
         assert within_tolerance is True
 
     def test_dispatcher_invalid_auto_config(self, mock_wsi_standard):
-        """Should raise error for invalid auto config."""
-        # Note: Pydantic validation catches this before we even get to the dispatcher
+        """Should raise error for auto mode without target MPP."""
+        # ResolutionParams rejects this already; bypass it to reach the dispatcher guard
+        mock_resolution = Mock()
+        mock_resolution.level_mode = "auto"
+        mock_resolution.target_tile_mpp = None
+
         with pytest.raises(ValueError, match="Auto mode requires target_tile_mpp"):
-            Tiling(
-                level_mode="auto",
-                target_tile_mpp=None,  # Invalid for auto mode
-            )
+            select_tile_level_from_config(mock_wsi_standard, mock_resolution)
 
 
 # =============================================================================
@@ -446,35 +430,35 @@ class TestMPPSelectionDispatcher:
 
 
 class TestConfigValidation:
-    """Test Pydantic model validation for Tiling class."""
+    """Test Pydantic validation for ResolutionParams and GridParams."""
 
     def test_fixed_mode_valid(self):
         """Valid fixed mode config should pass validation."""
-        tiling = Tiling(level_mode="fixed", tile_level=2, tile_size=256, step_size=256)
+        resolution = ResolutionParams(level_mode="fixed", tile_level=2)
 
-        assert tiling.level_mode == "fixed"
-        assert tiling.tile_level == 2
+        assert resolution.level_mode == "fixed"
+        assert resolution.tile_level == 2
 
     def test_fixed_mode_invalid_level(self):
         """Fixed mode with negative tile_level should fail validation."""
-        with pytest.raises(ValueError, match="Fixed mode requires tile_level"):
-            Tiling(
+        with pytest.raises(ValueError, match="requires level ≥ 0"):
+            ResolutionParams(
                 level_mode="fixed",
                 tile_level=-1,  # Invalid
             )
 
     def test_auto_mode_valid(self):
         """Valid auto mode config should pass validation."""
-        tiling = Tiling(level_mode="auto", target_tile_mpp=0.50, level_policy="closest")
+        resolution = ResolutionParams(level_mode="auto", target_tile_mpp=0.50, level_policy="closest")
 
-        assert tiling.level_mode == "auto"
-        assert tiling.target_tile_mpp == 0.50
-        assert tiling.tile_level == -1  # Should be ignored in auto mode
+        assert resolution.level_mode == "auto"
+        assert resolution.target_tile_mpp == 0.50
+        assert resolution.tile_level == -1  # Should be ignored in auto mode
 
     def test_auto_mode_invalid_mpp(self):
         """Auto mode without target_tile_mpp should fail validation."""
-        with pytest.raises(ValueError, match="Auto mode requires target_tile_mpp"):
-            Tiling(
+        with pytest.raises(ValidationError):
+            ResolutionParams(
                 level_mode="auto",
                 target_tile_mpp=None,  # Invalid
             )
@@ -482,117 +466,44 @@ class TestConfigValidation:
     def test_tile_size_validation(self):
         """Should validate tile_size > 0."""
         with pytest.raises(ValueError):
-            Tiling(tile_size=0)
+            GridParams(tile_size=0)
 
         with pytest.raises(ValueError):
-            Tiling(tile_size=-1)
+            GridParams(tile_size=-1)
 
     def test_mpp_tolerance_validation(self):
         """Should validate mpp_tolerance bounds."""
         with pytest.raises(ValueError):
-            Tiling(mpp_tolerance=-0.1)  # < 0
+            ResolutionParams(mpp_tolerance=-0.1)  # < 0
 
         with pytest.raises(ValueError):
-            Tiling(mpp_tolerance=1.5)  # > 1
+            ResolutionParams(mpp_tolerance=1.5)  # > 1
 
 
 # =============================================================================
-# Test Configuration Overrides
+# Test Configuration Immutability
 # =============================================================================
 
 
-class TestConfigOverrides:
-    """Test Config.with_tiling_overrides method."""
+class TestConfigImmutability:
+    """ResolutionParams is frozen; changes go through model_copy."""
 
-    def test_geometry_only_override(self, sample_configs):
-        """Should update geometry without changing mode."""
+    def test_resolution_is_frozen(self, sample_configs):
         config = sample_configs["auto_mode"]
 
-        new_config = config.with_tiling_overrides(tile_size=512, step_size=512)
+        with pytest.raises(ValidationError):
+            config.resolution.level_policy = "lower"
 
-        # Mode should be preserved
-        assert new_config.tiling.level_mode == "auto"
-        assert new_config.tiling.target_tile_mpp == 0.50
+        with pytest.raises(ValidationError):
+            config.resolution.target_tile_mpp = 0.25
 
-        # Geometry should be updated
-        assert new_config.tiling.tile_size == 512
-        assert new_config.tiling.step_size == 512
-
-    def test_explicit_mode_switch_auto_to_fixed(self, sample_configs):
-        """Should explicitly switch from auto to fixed mode."""
+    def test_model_copy_update(self, sample_configs):
         config = sample_configs["auto_mode"]
 
-        new_config = config.with_tiling_overrides(level_mode="fixed", tile_level=3)
+        new_resolution = config.resolution.model_copy(update={"target_tile_mpp": 0.25})
 
-        assert new_config.tiling.level_mode == "fixed"
-        assert new_config.tiling.tile_level == 3
-
-    def test_explicit_mode_switch_fixed_to_auto(self, sample_configs):
-        """Should explicitly switch from fixed to auto mode."""
-        config = sample_configs["fixed_mode"]
-
-        new_config = config.with_tiling_overrides(
-            level_mode="auto", target_tile_mpp=0.25, level_policy="lower"
-        )
-
-        assert new_config.tiling.level_mode == "auto"
-        assert new_config.tiling.target_tile_mpp == 0.25
-        assert new_config.tiling.level_policy == "lower"
-        assert new_config.tiling.tile_level == -1  # Reset for auto mode
-
-    def test_implicit_mode_switch_via_tile_level(self, sample_configs):
-        """Should infer fixed mode when tile_level provided."""
-        config = sample_configs["auto_mode"]
-
-        new_config = config.with_tiling_overrides(tile_level=2)
-
-        assert new_config.tiling.level_mode == "fixed"
-        assert new_config.tiling.tile_level == 2
-
-    def test_implicit_mode_switch_via_target_mpp(self, sample_configs):
-        """Should infer auto mode when target_tile_mpp provided."""
-        config = sample_configs["fixed_mode"]
-
-        new_config = config.with_tiling_overrides(
-            target_tile_mpp=0.75, level_policy="higher"
-        )
-
-        assert new_config.tiling.level_mode == "auto"
-        assert new_config.tiling.target_tile_mpp == 0.75
-        assert new_config.tiling.level_policy == "higher"
-
-    def test_override_error_fixed_without_level(self, sample_configs):
-        """Should raise error when switching to fixed without tile_level."""
-        config = sample_configs["auto_mode"]
-
-        with pytest.raises(ValueError, match="requires a non-negative tile_level"):
-            config.with_tiling_overrides(level_mode="fixed")
-
-    def test_override_error_auto_without_mpp(self, sample_configs):
-        """Should raise error when switching to auto without target_tile_mpp."""
-        config = sample_configs["fixed_mode"]
-
-        with pytest.raises(ValueError, match="requires target_tile_mpp"):
-            config.with_tiling_overrides(level_mode="auto")
-
-    def test_convenience_to_fixed(self, sample_configs):
-        """Should use convenience method to_fixed."""
-        config = sample_configs["auto_mode"]
-
-        new_config = config.to_fixed(tile_level=2)
-
-        assert new_config.tiling.level_mode == "fixed"
-        assert new_config.tiling.tile_level == 2
-
-    def test_convenience_to_auto(self, sample_configs):
-        """Should use convenience method to_auto."""
-        config = sample_configs["fixed_mode"]
-
-        new_config = config.to_auto(target_tile_mpp=0.40, level_policy="higher")
-
-        assert new_config.tiling.level_mode == "auto"
-        assert new_config.tiling.target_tile_mpp == 0.40
-        assert new_config.tiling.level_policy == "higher"
+        assert new_resolution.target_tile_mpp == 0.25
+        assert config.resolution.target_tile_mpp == 0.50
 
 
 # =============================================================================
@@ -607,8 +518,8 @@ class TestConfigLoading:
         """Should load default config correctly."""
         config = load_config_with_presets(temp_yaml_configs["default"])
 
-        assert config.tiling.level_mode == "auto"
-        assert config.tiling.target_tile_mpp == 0.30
+        assert config.resolution.level_mode == "auto"
+        assert config.resolution.target_tile_mpp == 0.30
         assert config.seg_params.sthresh == 8
 
     def test_load_with_preset_merge(self, temp_yaml_configs):
@@ -622,8 +533,8 @@ class TestConfigLoading:
         assert config.filter_params.a_t == 50
 
         # Default values should be preserved
-        assert config.tiling.target_tile_mpp == 0.30
-        assert config.tiling.level_mode == "auto"
+        assert config.resolution.target_tile_mpp == 0.30
+        assert config.resolution.level_mode == "auto"
 
     def test_load_with_mode_changing_preset(self, temp_yaml_configs):
         """Should handle preset that changes level mode."""
@@ -632,11 +543,11 @@ class TestConfigLoading:
         )
 
         # Mode should be switched by preset
-        assert config.tiling.level_mode == "fixed"
-        assert config.tiling.tile_level == 2
+        assert config.resolution.level_mode == "fixed"
+        assert config.resolution.tile_level == 2
 
         # Other values should be preserved
-        assert config.tiling.tile_size == 256
+        assert config.grid.tile_size == 256
 
     def test_load_multiple_presets(self, temp_yaml_configs):
         """Should apply multiple presets in order."""
@@ -647,8 +558,8 @@ class TestConfigLoading:
 
         # Should have both biopsy settings and fixed mode
         assert config.seg_params.sthresh == 15  # from biopsy
-        assert config.tiling.level_mode == "fixed"  # from fixed
-        assert config.tiling.tile_level == 2
+        assert config.resolution.level_mode == "fixed"  # from fixed
+        assert config.resolution.tile_level == 2
 
 
 # =============================================================================
@@ -665,11 +576,11 @@ class TestConfigIntegration:
 
         # Should select fixed level
         level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, config.tiling
+            mock_wsi_standard, config.resolution
         )
 
         assert level == 1
-        assert config.tiling.level_mode == "fixed"
+        assert config.resolution.level_mode == "fixed"
         assert (
             "within tolerance" in reason
         )  # level 1 has mpp=0.50, matches default target_tile_mpp=0.50
@@ -680,28 +591,13 @@ class TestConfigIntegration:
 
         # Should select based on policy
         level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, config.tiling
+            mock_wsi_standard, config.resolution
         )
 
         # Target 0.75, policy "lower" -> should pick level 1 (0.50)
         assert level == 1
         assert mpp == 0.50
-        assert config.tiling.level_policy == "lower"
-
-    def test_config_override_then_selection(self, mock_wsi_standard, sample_configs):
-        """Test overriding config then using for selection."""
-        config = sample_configs["auto_mode"]
-
-        # Override to fixed mode
-        fixed_config = config.with_tiling_overrides(tile_level=3)
-
-        # Should now use fixed selection
-        level, mpp, within_tolerance, reason = select_tile_level_from_config(
-            mock_wsi_standard, fixed_config.tiling
-        )
-
-        assert level == 3
-        assert fixed_config.tiling.level_mode == "fixed"
+        assert config.resolution.level_policy == "lower"
 
 
 # =============================================================================
@@ -714,19 +610,17 @@ class TestConfigEdgeCases:
 
     def test_wsi_no_levels(self):
         """Should handle WSI with no pyramid levels."""
-        mock_wsi_obj = Mock()
         mock_openslide = Mock()
         mock_openslide.level_count = 0
         mock_openslide.level_downsamples = []
         mock_openslide.properties = {}
-        mock_wsi_obj.getOpenSlide.return_value = mock_openslide
 
         with pytest.raises(ValueError, match="No pyramid levels"):
-            select_tile_level_fixed(mock_wsi_obj, tile_level=0)
+            select_tile_level_fixed(mock_openslide, tile_level=0)
 
         with pytest.raises(ValueError, match="No pyramid levels"):
             select_tile_level_auto(
-                mock_wsi_obj,
+                mock_openslide,
                 target_tile_mpp=0.50,
                 mpp_tolerance=0.1,
                 level_policy="closest",

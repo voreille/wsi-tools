@@ -1,267 +1,165 @@
-# 🧬 Histoseg Plugin
+# wsitools
 
-**Histoseg Plugin** is a modular preprocessing and embedding framework for **Whole Slide Images (WSIs)** in digital pathology.  
-It currently provides a complete **tiling pipeline** (segmentation → patch coordinate extraction → stitch/mask rendering) and a growing **embedding module** for deep feature extraction.
+Whole-slide image (WSI) tools for digital pathology:
 
-> Status: **Tiling complete ✅** · **Embeddings in progress 🚧** · **FastAPI & viewer adapters planned 🌐**
+- **Tiling** (`wsi-tile`): tissue segmentation, patch coordinate extraction in
+  level-0 pixel space, mask and stitch rendering, resumable batch jobs.
+- **Embedding** (`wsi-embed`): extract tile features with pretrained encoders
+  (UNI2-h, H-optimus-1, H0-mini) into a resumable embedding store.
+- **Stores**: tiling and embedding stores behind small interfaces (JSON/HDF5),
+  plus `wsi-repack` to rewrite an embedding store with another dtype/chunking.
 
----
+## Installation
 
-## ✨ Features
+Requires Python 3.10+. OpenSlide binaries come from `openslide-bin`.
 
-- **Tiling pipeline**
-  - Tissue segmentation with contour/holes handling
-  - Patch coordinate extraction in **level‑0 pixel space**
-  - Atomic, chunked **HDF5** storage for large coord sets
-  - Mask & stitched mosaic visualizations (PNG/JPG)
-  - Multiprocessing for fast coordinate generation
-- **Configuration**
-  - YAML configs validated by **Pydantic**
-  - Preset inheritance and runtime overrides
-- **Jobs**
-  - Batch/parallel processing
-  - Slide‑level status persistence and resume
-- **Storage abstraction**
-  - Writer interface decoupled from FS/HDF5 (future DB-friendly)
+```bash
+uv sync                          # tiling + stores
+uv sync --extra embed            # + torch, torchvision, timm (wsi-embed)
+uv sync --extra test             # + pytest
+```
 
-Planned next:
-- **Embedding extraction** (UNI/DINOv2/CLIP, etc.)
-- **Attention MIL & heatmaps**
-- **FastAPI service** + viewer adapters (Sectra, QuPath)
+Torch is unpinned in the `embed` extra so the consuming project picks the
+version/CUDA build.
 
----
+The CLIs read their default configs from `configs/` next to `src/`, so run them
+from a source checkout (editable install).
 
-## 📦 Project Layout
+## Tiling
+
+```bash
+uv run wsi-tile --source /data/slides --output /results/tiles
+```
+
+Useful options (`uv run wsi-tile --help` for all):
+
+| Option | Meaning |
+| --- | --- |
+| `--config PATH` | Tiling config (default `configs/tiling.yaml`) |
+| `--joblist-yaml PATH` | Process the slides listed in a job YAML |
+| `--include-slides PATH` | JSON list of filenames to keep from `--source` |
+| `--generate-joblist-only` | Write `tiling_jobs.yaml` and stop |
+| `--auto-skip/--no-auto-skip` | Skip slides whose outputs exist (default on) |
+| `--strict-mpp` | Mark slides as failed when no level is within MPP tolerance (auto mode) |
+| `--seg/--patch/--stitch` (and `--no-*`) | Choose which outputs to produce |
+| `--extensions` | Default `.svs,.ndpi,.tiff,.tif` |
+| `--rglob-str` | Glob used to find slides under `--source` |
+
+Output directory (with the default `configs/storage.yaml`):
 
 ```
-src/histoseg_plugin/
-├── embedding/                # Embedding and feature extraction
-│   ├── datasets.py           # Tile and patch datasets
-│   ├── encoders.py           # Feature extractor wrappers
-│   ├── extract_features.py   # (WIP) Embedding pipeline entrypoint
-│   ├── _torch_utils.py       # PyTorch helpers
-│   └── test_handles_workers.py
-│
-├── tiling/                   # Core WSI tiling and preprocessing
-│   ├── config_ops.py
-│   ├── contours_processing.py
-│   ├── contour_utils.py
-│   ├── create_patches.py     # CLI for batch tiling
-│   ├── jobs/                 # Job orchestration & persistence
-│   │   ├── domain.py
-│   │   ├── exceptions.py
-│   │   ├── factory.py
-│   │   ├── inspector.py
-│   │   ├── runner.py
-│   │   ├── run_options.py
-│   │   └── store.py
-│   ├── parameter_models.py   # Pydantic models for configs
-│   └── process_wsi.py        # Single‑slide processing pipeline
-│
-├── storage/                  # File I/O and HDF5 management
-│   ├── config.py             # Pydantic configuration models
-│   ├── factory.py            # Store builders with config injection
-│   ├── fs_writer.py          # Atomic writes (.part → final)
-│   ├── h5_store.py
-│   └── interfaces.py         # TilingWriter interface
-│
-├── wsi_core/                 # OpenSlide & visualization utilities
-│   ├── annotations.py
-│   ├── contour_checker.py
-│   ├── geometry.py
-│   ├── patch_sampling.py
-│   ├── segmentation.py
-│   ├── stitch.py             # Stitched mosaic rendering
-│   └── visualization.py      # Mask overlays
-│
+results/tiles/
+├── .tiling_store.json     # store config, used by wsi-embed to reopen the store
+├── tiling_jobs.yaml       # per-slide job status (resume)
+├── tiling_manifest.yaml   # effective tiling config
+├── patches_json/          # <slide>.coords.jsonl + <slide>.meta.json
+├── masks/                 # tissue overlays
+└── stitches/              # downsampled patch mosaics
+```
+
+### Tiling config
+
+`configs/tiling.yaml` is validated by `TilingConfig`
+(`src/wsitools/tiling/parameter_models.py`):
+
+```yaml
+resolution:
+  level_mode: auto        # auto: pick level from target MPP; fixed: use tile_level
+  target_tile_mpp: 0.50
+  mpp_tolerance: 0.1
+  tile_level: -1          # used when level_mode: fixed
+  level_policy: lower     # closest | lower | higher
+grid:
+  tile_size: 224
+  step_size: 224
+seg_params: {...}
+filter_params: {...}
+vis_params: {...}
+patch_params: {...}
+```
+
+When the chosen level is outside the MPP tolerance, the tile and step sizes are
+rescaled so tiles cover the same physical area (`resolution.correct_tile_size`,
+on by default).
+
+Presets for common slide types are in `configs/tiling_presets/` (biopsy,
+resection, tcga, high_quality). Pass one with `--config`; sections a preset
+leaves out use the model defaults. In Python, presets can be deep-merged over a
+base config:
+
+```python
+from wsitools.tiling.config_ops import load_config_with_presets
+
+cfg = load_config_with_presets(
+    "configs/tiling.yaml",
+    ["configs/tiling_presets/biopsy.yaml"],  # later presets win
+)
+```
+
+## Embedding
+
+```bash
+uv run wsi-embed \
+  --tiles-rootdir /results/tiles \
+  --slides-rootdir /data/slides \
+  --output-dir /results/features \
+  --model-name h0-mini            # uni2-h | h-optimus-1 | h0-mini
+```
+
+Other options: `--batch-size`, `--num-workers`, `--no-auto-skip`,
+`--use-amp/--no-use-amp`, `--export-pt`. Uses CUDA when available. The models
+are pulled from the Hugging Face Hub, so gated ones need `huggingface-cli login`.
+
+Features go to an HDF5 embedding store (`h5_files/` by default, configured in
+`configs/storage.yaml` under `embedding.features`: `dtype`, `chunk_rows`,
+`compression`). Slides are written to partial files and finalized atomically,
+so interrupted runs resume. Load features with:
+
+```python
+from wsitools.storage.factory import build_embedding_store_from_dir
+
+store = build_embedding_store_from_dir(root_dir="/results/features")
+features, coords, attrs = store.load(slide_id)   # float32 by default
+```
+
+### Repacking a store
+
+```bash
+uv run wsi-repack --src /results/features --dst /results/features_fp16 \
+  --dtype float16 --chunk-rows 1024 --compression none
+```
+
+Writes atomically per slide, is resumable, and checks each slide against the
+source.
+
+## Model adapters
+
+Besides the built-in encoders, `wsitools.models.hub` loads model adapters from
+the `wsitools.models` entry-point group or from a folder containing `load.py`
+and `model.yaml` (example: `src/wsitools/models/builtin/test_resnet50/`).
+
+## Layout
+
+```
+src/wsitools/
+├── tiling/          # wsi-tile CLI, single-slide pipeline, config models, jobs/
+├── wsi_core/        # segmentation, patch sampling, geometry, stitch, visualization
+├── embedding/       # wsi-embed CLI, datasets, encoders
+├── models/          # encoder builder and model hub
+├── storage/         # store interfaces, JSON/HDF5 stores, factory, wsi-repack
+├── tile_prediction/ # tile-level prediction
 └── utils/
-    ├── file_utils.py
-    ├── h5_utils.py
-    └── __init__.py
+configs/             # tiling.yaml, tiling_presets/, embedding.yaml, storage.yaml
+tests/
 ```
 
-**Outputs** are organized as:
-```
-output_dir/
-├── jobs.yaml          # Job list & per‑slide status
-├── manifest.yaml      # Effective merged configuration
-├── masks/             # Tissue overlays (.png/.jpg)
-├── patches/           # Patch coordinates (.h5)
-└── stitches/          # Downsampled mosaics (.jpg)
-```
-
----
-
-## 🛠️ Installation
+## Tests
 
 ```bash
-git clone https://github.com/your-org/histoseg-plugin.git
-cd histoseg-plugin
-
-# Recommended: Python 3.10+
-python -m venv .venv
-source .venv/bin/activate
-
-# Editable install
-pip install -e .
-
-# Core dependencies (if not pulled via setup.cfg/pyproject)
-pip install openslide-python h5py numpy pillow pydantic tqdm
-# For embeddings (WIP):
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+uv run pytest
 ```
 
-> **OpenSlide**: ensure system libraries are installed (e.g., `libopenslide0`).
+## Acknowledgements
 
----
-
-## 🚀 Quickstart (Tiling)
-
-Run the tiling CLI on a folder of WSIs:
-```bash
-histoseg-process   --source /data/slides   --output /results   --config configs/tiling/default.yaml
-```
-
-Use a preset tailored to a slide type:
-```bash
-histoseg-process   --source /data/biopsies   --output /results   --config configs/tiling/presets/biopsy.yaml
-```
-
-Resume an interrupted run (auto-skips completed slides):
-```bash
-histoseg-process   --source /data/slides   --output /results   --auto-skip
-```
-
-Process a curated YAML list:
-```bash
-histoseg-process   --process-list jobs.yaml   --output /results
-```
-
----
-
-## ⚙️ Configuration
-
-Configs are **YAML** validated by **Pydantic**. They support preset inheritance and runtime overrides.
-
-```python
-from histoseg_plugin.tiling.config_ops import load_config_with_presets
-
-config = load_config_with_presets(
-    "configs/tiling/default.yaml",
-    ["configs/tiling/presets/resection.yaml"],
-)
-
-# Optional runtime overrides
-config = config.with_tiling_overrides(
-    tile_size=512,
-    target_tile_mpp=0.25,
-    level_policy="lower",
-)
-```
-
-Key parameters live in `tiling/parameter_models.py` and map directly to the pipeline.
-
----
-
-## 🧠 Processing Pipeline (Tiling)
-
-Core entrypoint:
-```python
-```python
-from histoseg_plugin.tiling.process_wsi import process_single_wsi
-from histoseg_plugin.storage.config import TilingStoreConfig
-
-# Load storage configuration
-store_config = TilingStoreConfig.from_yaml("configs/storage.yaml", root_key="tiling")
-
-result = process_single_wsi(
-    wsi_path="/path/slide.svs",
-    tile_rootdir="/results",
-    slide_rootdir="/path/to/slides",
-    config=my_config,                       # Pydantic TilingConfig
-    store_config=store_config,
-    generate_mask=True,
-    generate_patches=True,
-    generate_stitch=True,
-    verbose=True,
-)
-```
-print(result)
-```
-
-Design highlights:
-- Coordinates stored in **level‑0** ints
-- Level selection by **MPP tolerance** and **policy** (`closest|lower|higher`)
-- `FSTilingWriter` handles atomic HDF5/image writes
-- Per‑contour `cont_idx` stored alongside `/coords` for fast partial reruns
-
----
-
-## 🧬 Embedding Pipeline (WIP)
-
-The **embedding** module reads HDF5 coords, extracts tiles from WSIs, and computes embeddings with pretrained encoders.
-
-Planned workflow:
-```bash
-histoseg-embed   --source /results/patches   --output /results/embeddings   --model UNI2   --batch-size 64   --num-workers 4   --device cuda
-```
-
-Where:
-- `embedding/datasets.py` builds tile datasets from WSI + coord HDF5
-- `embedding/encoders.py` wraps torch-based encoders
-- `embedding/extract_features.py` orchestrates batching & I/O
-- Embeddings saved as HDF5 with metadata (model, patch size, MPP, etc.)
-
-Schema (example):
-```
-/embeddings/<slide_id>   (N, D) float32
-/coords/<slide_id>       (N, 2) int32          # optional copy for convenience
-/meta
-  model: str
-  weights: str
-  patch_size: int
-  tile_level: int
-  target_mpp: float
-  created_at: str (ISO8601)
-```
-
----
-
-## 🧰 Troubleshooting
-
-- **“dataclass() got an unexpected keyword argument 'slots'”**  
-  You’re on Python < 3.10. Remove `slots=True` or use a compatibility shim.
-
-- **OpenSlide errors**  
-  Verify system libs: e.g., Ubuntu `sudo apt-get install libopenslide0`.
-
-- **Huge images / DecompressionBombError**  
-  Increase downscale for stitching (`downscale=64`) or adjust PIL limits if safe.
-
-- **Chained tracebacks**  
-  Exceptions are re-raised with `from e`. Use `logging.exception(...)` at your entrypoint for full stack traces.
-
----
-
-## 🧭 Roadmap
-
-- [ ] Embedding CLI (`histoseg-embed`) and unified HDF5 schema
-- [ ] Attention MIL, heatmap exports
-- [ ] FastAPI service (job submission, status, downloads)
-- [ ] Viewer adapters (Sectra/QuPath), interactive contour edits
-
----
-
-## 📜 License
-
-MIT License — free to use for research and development.
-
----
-
-## 🙌 Acknowledgements
-
-- **CLAM (Lu et al., 2021)** for MIL concepts  
-- **OpenSlide** for WSI I/O  
-- **HDF5** for scalable on-disk arrays
-
-**Maintainer:** Valentin
+- CLAM (Lu et al., 2021): segmentation and patching approach
+- OpenSlide for WSI I/O

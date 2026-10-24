@@ -16,10 +16,9 @@ Commit message style: conventional prefixes (`feat(scope):`, `fix(scope):`,
 ## Project
 
 `wsitools`: whole-slide image (WSI) tiling, tile embedding and tiling/embedding
-stores for digital pathology. Formerly `histoseg-plugin`; README.md,
-`.github/copilot-instructions.md`, `tests/README.md` and
-`tests/test_config_and_mpp_selection.py` still use the old name/paths and are
-stale. Trust the code over those docs.
+stores for digital pathology. Formerly `histoseg-plugin`. Keep `README.md`,
+`.github/copilot-instructions.md` and `tests/README.md` in sync when CLIs,
+config schema or store layout change.
 
 ## Commands
 
