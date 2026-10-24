@@ -337,6 +337,35 @@ class TestMPPSelectionAuto:
         assert level == 3  # closest available
         assert mpp == 2.0
 
+    def test_auto_exact_policy_within_tolerance(self, mock_wsi_standard):
+        """Exact policy should select the closest level when within tolerance."""
+        level, mpp, within_tolerance, reason = select_tile_level_auto(
+            mock_wsi_standard,
+            target_tile_mpp=0.52,
+            mpp_tolerance=0.10,
+            level_policy="exact",
+        )
+
+        assert level == 1
+        assert mpp == 0.50
+        assert within_tolerance is True
+        assert reason == "within tolerance"
+
+    def test_auto_exact_policy_out_of_tolerance(self, mock_wsi_standard):
+        """Exact policy should not fall back to another policy when out of tolerance."""
+        # Target 0.75: "higher" would pick level 2 (1.0); exact keeps the closest
+        level, mpp, within_tolerance, reason = select_tile_level_auto(
+            mock_wsi_standard,
+            target_tile_mpp=0.75,
+            mpp_tolerance=0.10,
+            level_policy="exact",
+        )
+
+        assert level == 1
+        assert mpp == 0.50
+        assert within_tolerance is False
+        assert reason.startswith("exact policy: no level within tolerance")
+
     def test_auto_tolerance_failure(self, mock_wsi_standard):
         """Should report tolerance failure with detailed reason."""
         level, mpp, within_tolerance, reason = select_tile_level_auto(

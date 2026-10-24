@@ -18,7 +18,7 @@ Tiling configuration and pyramid level selection
 - `_get_level_mpps`: MPP from OpenSlide metadata, fallback to downsamples when
   missing or corrupted.
 - `select_tile_level_fixed`: level clamping, optional tolerance check.
-- `select_tile_level_auto`: `closest` / `lower` / `higher` policies and their
+- `select_tile_level_auto`: `closest` / `lower` / `higher` / `exact` policies and their
   fallback to the closest level, tolerance reporting.
 - `select_tile_level_from_config`: dispatch on `resolution.level_mode`.
 - `ResolutionParams` / `GridParams` validation, `ResolutionParams` immutability.

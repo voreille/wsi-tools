@@ -83,7 +83,7 @@ def select_tile_level_auto(
     diffs = [abs(m - target_tile_mpp) for m in mpps]
     closest = min(range(len(mpps)), key=lambda i: diffs[i])
 
-    if level_policy == "closest":
+    if level_policy in ("closest", "exact"):
         lvl = closest
     elif level_policy == "lower":
         lowers = [i for i, m in enumerate(mpps) if m <= target_tile_mpp]
@@ -108,6 +108,8 @@ def select_tile_level_auto(
         if ok
         else f"mpp {mpp:.3f} not in [{lo:.3f}, {hi:.3f}] (target {target_tile_mpp:.3f}), available mpps: {', '.join(f'{m:.3f}' for m in mpps)}"
     )
+    if level_policy == "exact" and not ok:
+        reason = f"exact policy: no level within tolerance; {reason}"
     return lvl, mpp, ok, reason
 
 
@@ -264,6 +266,13 @@ def process_single_wsi(
             cfg_resolution=config.resolution,
         )
     )
+    if (
+        config.resolution.level_mode == "auto"
+        and config.resolution.level_policy == "exact"
+        and not mpp_within_tolerance
+    ):
+        raise PatchError(mpp_reason)
+
     target_tile_size = config.grid.tile_size
     target_step_size = config.grid.step_size
     if config.resolution.correct_tile_size and not mpp_within_tolerance:

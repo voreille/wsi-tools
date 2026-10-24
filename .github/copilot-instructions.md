@@ -48,7 +48,8 @@ high_quality), `configs/embedding.yaml`, `configs/storage.yaml`.
 
 - Coordinates are level-0 pixels everywhere.
 - Level selection: `resolution.level_mode` is `auto` (from `target_tile_mpp`,
-  `mpp_tolerance`, `level_policy`: closest/lower/higher) or `fixed`
+  `mpp_tolerance`, `level_policy`: closest/lower/higher/exact; exact fails the slide when
+  no level is within tolerance) or `fixed`
   (`tile_level`). Out-of-tolerance levels rescale tile/step size when
   `correct_tile_size` is on.
 - Stores write to partial files and finalize atomically; runs are resumable

@@ -68,7 +68,7 @@ resolution:
   target_tile_mpp: 0.50
   mpp_tolerance: 0.1
   tile_level: -1          # used when level_mode: fixed
-  level_policy: lower     # closest | lower | higher
+  level_policy: lower     # closest | lower | higher | exact
 grid:
   tile_size: 224
   step_size: 224
@@ -77,6 +77,11 @@ filter_params: {...}
 vis_params: {...}
 patch_params: {...}
 ```
+
+Level policies pick the level whose MPP is closest to the target (`closest`),
+the closest at or below it (`lower`) or at or above it (`higher`); `lower` and
+`higher` fall back to `closest` when no level qualifies. `exact` picks the
+closest level and fails the slide if it is outside `mpp_tolerance`.
 
 When the chosen level is outside the MPP tolerance, the tile and step sizes are
 rescaled so tiles cover the same physical area (`resolution.correct_tile_size`,

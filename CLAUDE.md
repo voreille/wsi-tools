@@ -54,7 +54,8 @@ Configs live in `configs/`: `tiling.yaml` + `tiling_presets/*.yaml`,
 
 - Coordinates are level-0 pixel space everywhere.
 - Pyramid level is chosen from target MPP (`resolution.level_mode: auto`,
-  `level_policy`: closest/lower/higher/exact).
+  `level_policy`: closest/lower/higher/exact; exact fails the slide instead
+  of rescaling when no level is within tolerance).
 - Writes are atomic (write to a partial file, then rename); stores are resumable
   and must tolerate interrupted runs (`cleanup_incomplete`, `status`).
 - Store paths in config are resolved against an absolute `root_dir`.
