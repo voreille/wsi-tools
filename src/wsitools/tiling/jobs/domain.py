@@ -80,6 +80,13 @@ class TilingJobCollection:
             if j.process and j.status in ("pending", "failed")
         ]
 
+    def reset_for_rerun(self) -> None:
+        """Mark every job pending again; per-slide configs are kept."""
+        for j in self.jobs:
+            j.status = JobStatus.PENDING
+            j.error = None
+            j.result = None
+
     def normalize_for_resume(self) -> None:
         # any stale 'running' means last run crashed
         for j in self.jobs:

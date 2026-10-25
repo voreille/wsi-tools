@@ -7,7 +7,7 @@ import click
 
 from ..storage.config import TilingStoreConfig
 from .config_ops import load_config_with_presets
-from .jobs.factory import jobs_from_dir, jobs_from_yaml
+from .jobs.factory import jobs_from_dir, jobs_from_yaml, merge_job_lists
 from .jobs.run_options import RunOptions
 from .jobs.runner import run_tiling_jobs
 from .jobs.store import YamlJobStore
@@ -74,12 +74,15 @@ def load_slide_filenames(path: Path) -> set[str]:
 @click.option(
     "--auto-skip/--no-auto-skip",
     default=True,
-    help="Skip slides whose outputs already exist.",
+    help=(
+        "Keep the statuses of the job list (jobs already processed are not re-run). "
+        "--no-auto-skip re-runs every job, keeping per-slide configs."
+    ),
 )
 @click.option(
     "--strict-mpp/--no-strict-mpp",
     default=False,
-    help="Skip slides whose outputs already exist.",
+    help="Mark slides as failed when no level is within the MPP tolerance (auto mode).",
 )
 @click.option(
     "--generate-joblist-only",
@@ -128,14 +131,30 @@ def main(
 
     # Parse extensions
     file_extensions = tuple(ext.strip() for ext in extensions.split(","))
+    existing_joblist = output.resolve() / "tiling_jobs.yaml"
+
+    def with_existing(found):
+        """The output's job list is the record of what is done: keep its jobs
+        (status, per-slide config) and add only slides it doesn't have yet."""
+        if not existing_joblist.exists():
+            return found
+        merged, n_new = merge_job_lists(
+            jobs_from_yaml(existing_joblist, slides_root=source), found
+        )
+        click.echo(
+            f"Job list {existing_joblist}: {len(merged.jobs) - n_new} existing job(s) "
+            f"kept, {n_new} new slide(s) added"
+        )
+        return merged
+
     if generate_joblist_only:
         if joblist_yaml:
             click.echo(f"Generating joblist from {joblist_yaml}...")
             joblist = jobs_from_yaml(joblist_yaml, slides_root=source)
         else:
             click.echo(f"Generating joblist from {source}...")
-            joblist = jobs_from_dir(
-                source, cfg, exts=file_extensions, rglob_str=rglob_str
+            joblist = with_existing(
+                jobs_from_dir(source, cfg, exts=file_extensions, rglob_str=rglob_str)
             )
 
         if not joblist.jobs:
@@ -175,6 +194,12 @@ def main(
             raise click.Abort()
         if not quiet:
             click.echo(f"Found {len(joblist.jobs)} WSI files in {source}")
+        joblist = with_existing(joblist)
+
+    if not auto_skip:
+        joblist.reset_for_rerun()
+    if not quiet:
+        click.echo(f"Jobs: {joblist.summary()}")
 
     # Prepare output
     output = output.resolve()
@@ -210,7 +235,6 @@ def main(
                 generate_mask=seg,
                 generate_patches=patch,
                 generate_stitch=stitch,
-                auto_skip=auto_skip,
                 verbose=not quiet,
                 write_manifest=not no_manifest,
                 strict_mpp=strict_mpp,

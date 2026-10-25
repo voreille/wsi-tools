@@ -39,18 +39,25 @@ Useful options (`uv run wsi-tile --help` for all):
 | `--joblist-yaml PATH` | Process the slides listed in a job YAML |
 | `--include-slides PATH` | JSON list of filenames to keep from `--source` |
 | `--generate-joblist-only` | Write `tiling_jobs.yaml` and stop |
-| `--auto-skip/--no-auto-skip` | Skip slides whose outputs exist (default on) |
+| `--auto-skip/--no-auto-skip` | Keep job statuses: only pending/failed jobs run (default on). `--no-auto-skip` re-runs every job, keeping per-slide configs |
 | `--strict-mpp` | Mark slides as failed when no level is within MPP tolerance (auto mode) |
 | `--seg/--patch/--stitch` (and `--no-*`) | Choose which outputs to produce |
 | `--extensions` | Default `.svs,.ndpi,.tiff,.tif` |
 | `--rglob-str` | Glob used to find slides under `--source` |
+
+The output's `tiling_jobs.yaml` is the record of what is done. A rerun from
+`--source` keeps its jobs (status, per-slide config, error) and adds only slides it
+doesn't have yet, so processed slides are not re-tiled and failed ones are retried.
+To change the parameters of some slides, edit their `config` in `tiling_jobs.yaml`
+(set `status: pending` for slides that were processed) and rerun; to start over with
+the base config, delete the file.
 
 Output directory (with the default `configs/storage.yaml`):
 
 ```
 results/tiles/
 ├── .tiling_store.json     # store config, used by wsi-embed to reopen the store
-├── tiling_jobs.yaml       # per-slide job status (resume)
+├── tiling_jobs.yaml       # per-slide config and status (resume)
 ├── tiling_manifest.yaml   # effective tiling config
 ├── patches_json/          # <slide>.coords.jsonl + <slide>.meta.json
 ├── masks/                 # tissue overlays

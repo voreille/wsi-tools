@@ -40,3 +40,12 @@ resume, repack refusing `--dst == --src`, and relative `root_dir` handling.
 `PatchError` ("No tissue found" when segmentation keeps no contour, "No tiles" when
 contours yield no tile) instead of a missing-coords error at stitching. The slide
 and segmentation are mocked.
+
+## `test_tiling_auto_skip.py`
+
+`wsi-tile` reruns from `--source` with an existing `tiling_jobs.yaml` (slide
+processing is faked): processed jobs are not re-run and keep their per-slide config,
+failed ones are retried, new slides are added; `--no-auto-skip` re-runs every job with
+its per-slide config; `--generate-joblist-only` merges the same way. Also checks that
+`process_contours` writes a slide's coords in one save (no per-contour appends), so an
+interrupted run can't leave a partial coords file.

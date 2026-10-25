@@ -382,20 +382,20 @@ def process_contours(
     step_size: int,
     target_patch_size: int,
     target_step_size: int,
-    append: bool = True,
     relative_wsi_path: Optional[Path] = None,
     **kwargs,
 ) -> Optional[str]:
     """
-    Process all contours for a slide. Writes once or appends per-contour depending on `append`.
-    Returns a path-like string from the writer (if available).
+    Process all contours for a slide and write its coords in one atomic save, so an
+    existing coords file always holds the whole slide (auto-skip relies on this).
+    Returns the coords path, or None when no contour yields a tile (nothing written).
     """
     n = len(contours_tissue)
     if n == 0:
         return None
 
-    final_path_str: Optional[str] = None
-    wrote_header = False
+    all_coords: list[np.ndarray] = []
+    all_cont_idx: list[np.ndarray] = []
     log_chunk = max(1, int(n * 0.05))
 
     level_downsamples = compute_level_downsamples(wsi)  # [(dx,dy), ...]
@@ -435,13 +435,15 @@ def process_contours(
         coords = np.asarray(coords, dtype=np.int32).reshape(-1, 2)
         if coords.size == 0:
             continue
-        cont_idx = np.full((coords.shape[0],), idx, dtype=np.int32)
+        all_coords.append(coords)
+        all_cont_idx.append(np.full((coords.shape[0],), idx, dtype=np.int32))
 
-        if (not wrote_header) or (not append):
-            p = tiling_store.save_coords(slide_id, coords, attrs, cont_idx=cont_idx)
-            final_path_str = str(p)
-            wrote_header = True
-        else:
-            tiling_store.append_coords(slide_id, coords, cont_idx=cont_idx)
-
-    return final_path_str
+    if not all_coords:
+        return None
+    p = tiling_store.save_coords(
+        slide_id,
+        np.concatenate(all_coords),
+        attrs,
+        cont_idx=np.concatenate(all_cont_idx),
+    )
+    return str(p)

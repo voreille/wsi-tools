@@ -43,6 +43,17 @@ def jobs_from_dir(
     return TilingJobCollection(jobs)
 
 
+def merge_job_lists(
+    existing: TilingJobCollection,
+    found: TilingJobCollection,
+) -> tuple[TilingJobCollection, int]:
+    """Existing jobs as they are (status, per-slide config, error), then the found
+    slides that aren't in `existing` as new pending jobs. Returns (merged, n_new)."""
+    known = {Path(j.slide_path).resolve() for j in existing.jobs}
+    new = [j for j in found.jobs if Path(j.slide_path).resolve() not in known]
+    return TilingJobCollection(existing.jobs + new), len(new)
+
+
 def jobs_from_csv(
     csv_path: str | Path,
     *,
