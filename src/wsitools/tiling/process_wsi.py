@@ -316,6 +316,22 @@ def process_single_wsi(
         finally:
             patch_time = time.perf_counter() - t1
 
+        # No coords file is written for a slide without tiles; fail here with the
+        # cause instead of letting stitching/embedding fail on the missing file.
+        if patch_path_str is None:
+            if not contours_tissue:
+                raise PatchError(
+                    "No tissue found: segmentation kept no contour (check the mask). "
+                    "Lower seg_params.sthresh for pale slides or filter_params.a_t "
+                    "for small tissue pieces (a_t is in units of 512x512 level-0 "
+                    "pixels), e.g. per slide in tiling_jobs.yaml."
+                )
+            raise PatchError(
+                f"No tiles: {len(contours_tissue)} tissue contour(s) but none yielded "
+                f"a tile of {tile_size}px at level {tile_level} (check the mask and "
+                "patch_params)."
+            )
+
     # --- Stitch ---
     if generate_stitch:
         if verbose:

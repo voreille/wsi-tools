@@ -33,3 +33,10 @@ WSIs are mocked as OpenSlide-like objects (`level_count`, `level_downsamples`,
 `H5EmbeddingStore` and `wsi-repack`: loading stores written before dtype/chunking
 were configurable, float16 row-chunked round trip, repack verification and
 resume, repack refusing `--dst == --src`, and relative `root_dir` handling.
+
+## `test_process_wsi_no_tiles.py`
+
+`process_single_wsi` on a slide that yields no tiles: fails at patching with
+`PatchError` ("No tissue found" when segmentation keeps no contour, "No tiles" when
+contours yield no tile) instead of a missing-coords error at stitching. The slide
+and segmentation are mocked.
