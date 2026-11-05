@@ -44,6 +44,11 @@ Useful options (`uv run wsi-tile --help` for all):
 | `--seg/--patch/--stitch` (and `--no-*`) | Choose which outputs to produce |
 | `--extensions` | Default `.svs,.ndpi,.tiff,.tif` |
 | `--rglob-str` | Glob used to find slides under `--source` |
+| `--workers N` | Slides tiled in parallel, one process each (default 1). Memory grows with N |
+
+With `--workers N > 1`, only the main process writes `tiling_jobs.yaml`; workers
+return each slide's result. Slide outputs are named after the file stem, so
+slides with the same stem in different subfolders are rejected up front.
 
 The output's `tiling_jobs.yaml` is the record of what is done. A rerun from
 `--source` keeps its jobs (status, per-slide config, error) and adds only slides it

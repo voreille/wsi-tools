@@ -180,9 +180,12 @@ def process_single_wsi(
     generate_patches: bool = True,
     generate_stitch: bool = True,
     verbose: bool = True,
+    contour_workers: int = 4,
 ) -> TilingResult:
     """
     Process one WSI and (optionally) produce: tissue mask, patch coordinates, and a stitched visualization.
+    contour_workers: processes per contour for the tile checks (1 = in-process,
+    used when slides themselves run in parallel).
     """
     tiling_store: TilingStore = build_tiling_store(
         root_dir=Path(tile_rootdir),
@@ -309,6 +312,7 @@ def process_single_wsi(
                 relative_wsi_path=wsi_path.relative_to(slide_rootdir)
                 if slide_rootdir is not None
                 else wsi_path,
+                max_workers=contour_workers,
                 **patch_params,
             )
         except Exception as e:
@@ -418,7 +422,7 @@ def process_contours(
 
     for idx, cont in enumerate(contours_tissue):
         if (idx + 1) % log_chunk == 0:
-            print(f"Processing contour {idx + 1}/{n}")
+            print(f"[{slide_id}] processing contour {idx + 1}/{n}")
 
         # Your process_contour returns (coords, attrs). Keep as-is, just shape/typing.
         coords = process_contour(

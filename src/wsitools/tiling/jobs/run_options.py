@@ -13,6 +13,6 @@ class RunOptions:
     generate_stitch: bool = True
     strict_outputs: bool = True
     strict_mpp: bool = True  # if True, out-of-tolerance => FAILED
-    max_workers: int = 4
+    max_workers: int = 1  # slides tiled in parallel (one process each)
     verbose: bool = True
     write_manifest: bool = True

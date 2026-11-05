@@ -116,12 +116,14 @@ def process_contour(
     x_coords, y_coords = np.meshgrid(x_range, y_range, indexing="ij")
     coord_candidates = np.stack([x_coords.ravel(), y_coords.ravel()], axis=1)
 
-    # multiprocessing evaluation
+    iterable = [(tuple(coord), contour_holes, ref_patch_w, cont_check_fn)
+                for coord in coord_candidates]
     workers = min(max_workers, mp.cpu_count())
-    with mp.Pool(workers) as pool:
-        iterable = [(tuple(coord), contour_holes, ref_patch_w, cont_check_fn)
-                    for coord in coord_candidates]
-        results = pool.starmap(_process_coord_candidate, iterable)
+    if workers <= 1:
+        results = [_process_coord_candidate(*args) for args in iterable]
+    else:
+        with mp.Pool(workers) as pool:
+            results = pool.starmap(_process_coord_candidate, iterable)
 
     coords = np.array([r for r in results if r is not None], dtype=np.int32)
     if coords.size == 0:

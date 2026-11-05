@@ -9,7 +9,7 @@ from ..storage.config import TilingStoreConfig
 from .config_ops import load_config_with_presets
 from .jobs.factory import jobs_from_dir, jobs_from_yaml, merge_job_lists
 from .jobs.run_options import RunOptions
-from .jobs.runner import run_tiling_jobs
+from .jobs.runner import check_unique_slide_ids, run_tiling_jobs
 from .jobs.store import YamlJobStore
 from .parameter_models import TilingConfig
 from .process_wsi import process_single_wsi
@@ -17,6 +17,13 @@ from .process_wsi import process_single_wsi
 project_dir = Path(__file__).resolve().parents[3]
 DEFAULT_CFG = project_dir / "configs" / "tiling.yaml"
 DEFAULT_STORAGE_CFG = project_dir / "configs" / "storage.yaml"
+
+
+def _check_unique_slide_ids(joblist) -> None:
+    try:
+        check_unique_slide_ids(joblist)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def load_slide_filenames(path: Path) -> set[str]:
@@ -106,6 +113,17 @@ def load_slide_filenames(path: Path) -> set[str]:
     default="*",
     help="Glob pattern for recursive search of WSI files in the source directory.",
 )
+@click.option(
+    "--workers",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help=(
+        "Slides tiled in parallel, one process each. Memory use grows with this "
+        "(segmentation loads a whole pyramid level per slide). With >1, the "
+        "per-contour tile checks run in-process."
+    ),
+)
 def main(
     source: Path,
     output: Path,
@@ -122,6 +140,7 @@ def main(
     extensions: str,
     no_manifest: bool,
     rglob_str: str,
+    workers: int,
 ):
     # Load + merge configs (default then each preset in order)
     cfg: TilingConfig = load_config_with_presets(config)
@@ -160,6 +179,7 @@ def main(
         if not joblist.jobs:
             click.echo("No valid jobs found.", err=True)
             raise click.Abort()
+        _check_unique_slide_ids(joblist)
 
         output = output.resolve()
         output.mkdir(parents=True, exist_ok=True)
@@ -196,6 +216,7 @@ def main(
             click.echo(f"Found {len(joblist.jobs)} WSI files in {source}")
         joblist = with_existing(joblist)
 
+    _check_unique_slide_ids(joblist)
     if not auto_skip:
         joblist.reset_for_rerun()
     if not quiet:
@@ -238,6 +259,7 @@ def main(
                 verbose=not quiet,
                 write_manifest=not no_manifest,
                 strict_mpp=strict_mpp,
+                max_workers=workers,
             ),
             store_config=store_config,
         )

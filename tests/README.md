@@ -49,3 +49,10 @@ failed ones are retried, new slides are added; `--no-auto-skip` re-runs every jo
 its per-slide config; `--generate-joblist-only` merges the same way. Also checks that
 `process_contours` writes a slide's coords in one save (no per-contour appends), so an
 interrupted run can't leave a partial coords file.
+
+## `test_tiling_runner.py`
+
+`run_tiling_jobs` with `max_workers > 1` (one spawned process per slide): same
+statuses, errors and saved `tiling_jobs.yaml` as the serial run, a crashed worker
+fails its job, duplicate slide ids are rejected, and in-process contour checks
+(`max_workers=1`) give the same coords as the pool.
